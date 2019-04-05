@@ -4,7 +4,8 @@ import (
 	"github.com/sergeychur/technopark_db/internal/models"
 )
 
-func (db *DB) GetForumUsers(forumId string) (models.Users, int) {
+func (db *DB) GetForumUsers(forumId string, limit string,
+	since string, desc string) (models.Users, int) {
 	return models.Users{}, 0
 }
 

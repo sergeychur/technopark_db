@@ -55,6 +55,12 @@ func DealCreateStatus(w http.ResponseWriter, v interface{}, stat int) {
 		return
 	}
 
+	if stat == database.EmptyResult {
+		errText := models.Error{Message: "No item"}
+		WriteToResponse(w, http.StatusNotFound, errText)
+		return
+	}
+
 	if stat == database.Conflict {
 		WriteToResponse(w, http.StatusConflict, v)
 		return
@@ -87,4 +93,33 @@ func SlugOrId(str string) int {
 		return slug
 	}
 	return noMatch
+}
+
+func ParseParams(w http.ResponseWriter, r *http.Request,
+	limit *string, since *string, desc *string) error {
+	params := r.URL.Query()
+	limits, ok := params["limit"]
+	if !ok {
+		errText := models.Error{Message: "No limit"}
+		WriteToResponse(w, http.StatusBadRequest, errText)
+		return fmt.Errorf(errText.Message)
+	}
+	*limit = limits[0]
+
+	sinces, ok := params["since"]
+	if !ok {
+		errText := models.Error{Message: "No since"}
+		WriteToResponse(w, http.StatusBadRequest, errText)
+		return fmt.Errorf(errText.Message)
+	}
+	*since = sinces[0]
+
+	descs, ok := params["desc"]
+	if !ok {
+		errText := models.Error{Message: "No desc"}
+		WriteToResponse(w, http.StatusBadRequest, errText)
+		return fmt.Errorf(errText.Message)
+	}
+	*desc = descs[0]
+	return nil
 }

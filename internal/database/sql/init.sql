@@ -1,8 +1,11 @@
+DROP TABLE IF EXISTS votes;
+DROP TABLE IF EXISTS posts;
+DROP TABLE IF EXISTS threads;
 DROP TABLE IF EXISTS forum;
 DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS threads;
-DROP TABLE IF EXISTS posts;
-DROP TABLE IF EXISTS votes;
+
+
+
 
 CREATE EXTENSION IF NOT EXISTS citext;
 
@@ -17,7 +20,7 @@ CREATE TABLE forum (
 	posts bigint NOT NULL default 0, 
 	slug text NOT NULL CONSTRAINT first_key PRIMARY KEY, 
 	threads integer NOT NULL default 0, 
-	title citext NOT NULL, 
+	title citext NOT NULL,
 	user_nick citext NOT NULL, 
 	CONSTRAINT forum_foreignkey FOREIGN KEY (user_nick) 
 	REFERENCES users (nick_name) ON UPDATE CASCADE ON DELETE NO ACTION 
@@ -33,7 +36,7 @@ CREATE TABLE threads (
 	CONSTRAINT thread_forum_fk FOREIGN KEY (forum) 
 	REFERENCES forum (slug) ON UPDATE CASCADE ON DELETE NO ACTION,
 	message text NOT NULL,
-	slug text UNIQUE,
+	slug text,
 	title citext NOT NULL,
 	votes integer default 0
 );

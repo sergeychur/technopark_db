@@ -39,14 +39,32 @@ func (serv *Server) GetForumInfo(w http.ResponseWriter, r *http.Request) {
 
 func (serv *Server) GetForumThreads(w http.ResponseWriter, r *http.Request) {
 	forumId := chi.URLParam(r, "slug")
+	var (
+		limit = ""
+		since = ""
+		desc  = ""
+	)
+	err := ParseParams(w, r, &limit, &since, &desc)
+	if err != nil {
+		return
+	}
 	threads := models.Threads{}
-	threads, stat := serv.db.GetForumThreads(forumId)
+	threads, stat := serv.db.GetForumThreads(forumId, limit, since, desc)
 	DealGetStatus(w, &threads, stat)
 }
 
 func (serv *Server) GetUsersByForum(w http.ResponseWriter, r *http.Request) {
 	forumId := chi.URLParam(r, "slug")
 	users := models.Users{}
-	users, stat := serv.db.GetForumUsers(forumId)
+	var (
+		limit = ""
+		since = ""
+		desc  = ""
+	)
+	err := ParseParams(w, r, &limit, &since, &desc)
+	if err != nil {
+		return
+	}
+	users, stat := serv.db.GetForumUsers(forumId, limit, since, desc)
 	DealGetStatus(w, &users, stat)
 }
