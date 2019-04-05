@@ -6,7 +6,12 @@ import (
 )
 
 type Config struct {
-	Port         string   `json:"port"`
+	Port   string `json:"port"`
+	DBHost string `json:"dbhost"`
+	DBPort string `json:"dbport"`
+	DBUser string `json:"dbuser"`
+	DBPass string `json:"dbpassword"`
+	DBName string `json:"dbname"`
 }
 
 func NewConfig(pathToConfig string) (*Config, error) {

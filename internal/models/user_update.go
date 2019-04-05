@@ -1,16 +1,7 @@
 package models
 
-// UserUpdate Информация о пользователе.
-//
-// swagger:model UserUpdate
 type UserUpdate struct {
-
-	// Описание пользователя.
-	About string `json:"about,omitempty"`
-
-	// Почтовый адрес пользователя (уникальное поле).
-	Email strfmt.Email `json:"email,omitempty"`
-
-	// Полное имя пользователя.
+	About    string `json:"about,omitempty"`
+	Email    string `json:"email,omitempty"`
 	Fullname string `json:"fullname,omitempty"`
 }

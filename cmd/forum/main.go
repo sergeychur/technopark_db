@@ -13,8 +13,8 @@ func main() {
 		pathToConfig = os.Args[1]
 	}
 	serv, err := server.NewServer(pathToConfig)
+	err = serv.Run()
 	if err != nil {
 		panic(err.Error())
 	}
-	serv.Run()
 }

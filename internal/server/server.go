@@ -8,11 +8,12 @@ import (
 	"github.com/sergeychur/technopark_db/internal/database"
 	"log"
 	"net/http"
+	"os"
 )
 
-type Server struct{
+type Server struct {
 	router *chi.Mux
-	db *database.DB
+	db     *database.DB
 	config *config.Config
 }
 
@@ -52,14 +53,22 @@ func NewServer(pathToConfig string) (*Server, error) {
 		return nil, err
 	}
 	server.config = newConfig
-	db := database.NewDB()
+	db := database.NewDB(server.config.DBUser, server.config.DBPass,
+		server.config.DBName, server.config.DBHost, server.config.DBPort)
 	server.db = db
 	return server, nil
 }
 
-func (serv *Server) Run () {
-	serv.db.Start()
+func (serv *Server) Run() error {
+	err := serv.db.Start()
+	if err != nil {
+		log.Printf("Failed to connect to DB: %s", err.Error())
+		return err
+	}
 	defer serv.db.Close()
 	port := serv.config.Port
-	log.Fatal(http.ListenAndServe(":" + port, serv.router))
+	log.SetOutput(os.Stdout)
+	log.Printf("Running on port %s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, serv.router))
+	return nil
 }
