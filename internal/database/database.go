@@ -6,6 +6,13 @@ import (
 	_ "github.com/lib/pq"
 )
 
+const (
+	OK          = 0
+	DBError     = 1
+	EmptyResult = 2
+	Conflict    = 3
+)
+
 type DB struct {
 	db           *sql.DB
 	user         string

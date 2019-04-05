@@ -25,9 +25,11 @@ func NewServer(pathToConfig string) (*Server, error) {
 	slugPattern := "^(\\d|\\w|-|_)*(\\w|-|_)(\\d|\\w|-|_)*$"
 	idPattern := "^[0-9]+$"
 	nickPattern := "^[A-Za-z0-9_]$"
+
 	r.Post("/forum/create", server.CreateForum)
 	r.Post(fmt.Sprintf("/forum/{slug:%s}/create", slugPattern), server.CreateThread)
 	r.Get(fmt.Sprintf("/forum/{slug:%s}/details", slugPattern), server.GetForumInfo)
+	r.Get(fmt.Sprintf("/forum/{slug:%s}/threads", slugPattern), server.GetForumThreads)
 	r.Get(fmt.Sprintf("/forum/{slug:%s}/users", slugPattern), server.GetUsersByForum)
 
 	r.Get(fmt.Sprintf("/post/{id:%s}/details", idPattern), server.GetPostInfo)
