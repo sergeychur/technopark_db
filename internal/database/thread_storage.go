@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"log"
 )
@@ -11,21 +12,28 @@ const (
 	createThreadWithTime = "INSERT INTO threads (slug, created, title, author, forum, message) VALUES($1, $2, $3, $4, $5, $6)"
 	getThreadBySlug      = "SELECT * FROM threads WHERE slug = $1"
 	getThreadById        = "SELECT * FROM threads WHERE id = $1"
+	getForumThreads		 = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3"
 )
 
 func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread, int) {
-	ifExistsUser, err := db.IsUserExist(thread.Author)
+	tx, err := db.StartTransaction()
+	defer tx.Rollback()
+	if err != nil {
+		log.Println(err)
+		return models.Thread{}, DBError
+	}
+	ifExistsUser, err := IsUserExist(tx, thread.Author)
 	if err != nil {
 		log.Println(err.Error())
 		return models.Thread{}, DBError
 	}
-	ifExistsForum, err := db.IsForumExist(forumId)
+	ifExistsForum, err := IsForumExist(tx, forumId)
 	if !ifExistsUser || !ifExistsForum {
 		return models.Thread{}, EmptyResult
 	}
 	ifExistsThread := false
 	if thread.Slug != "" {
-		ifExistsThread, err = db.IsThreadExist(thread.Slug)
+		ifExistsThread, err = IsThreadExist(tx, thread.Slug)
 		if err != nil {
 			log.Println(err.Error())
 			return models.Thread{}, DBError
@@ -36,16 +44,20 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 	}
 
 	if thread.Created != "" {
-		_, err = db.db.Exec(createThreadWithTime, thread.Slug, thread.Created,
+		_, err = tx.Exec(createThreadWithTime, thread.Slug, thread.Created,
 			thread.Title, thread.Author, forumId, thread.Message)
 	} else {
-		_, err = db.db.Exec(createThread, thread.Slug, thread.Title, thread.Author, forumId, thread.Message)
+		_, err = tx.Exec(createThread, thread.Slug, thread.Title, thread.Author, forumId, thread.Message)
 	}
 
 	// TODO(Me): Deal with UNIQUE on thread, some shit now
 	if err != nil {
 		log.Println(err)
 		return models.Thread{}, Conflict
+	}
+	err = tx.Commit()
+	if err != nil {
+		return models.Thread{}, DBError
 	}
 	if thread.Slug != "" {
 		return db.GetThreadBySlug(thread.Slug)
@@ -55,7 +67,29 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 
 func (db *DB) GetForumThreads(forumId string, limit string,
 	since string, desc string) (models.Threads, int) {
-	return models.Threads{}, 0
+	log.Println("get forum threads")
+
+	rows, err := db.db.Query(fmt.Sprintf(getForumThreads, desc), forumId, since, limit)
+	if err != nil {
+		return models.Threads{}, DBError
+	}
+	defer rows.Close()
+	threads := models.Threads{}
+	i := 0
+	for rows.Next() {
+		i++
+		thread := new(models.Thread)
+		err := rows.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum,
+			&thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
+		if err != nil{
+			return models.Threads{}, DBError
+		}
+		threads = append(threads, thread)
+	}
+	if i == 0 {
+		return models.Threads{}, EmptyResult
+	}
+	return threads, OK
 }
 
 func (db *DB) GetThreadBySlug(slug string) (models.Thread, int) {

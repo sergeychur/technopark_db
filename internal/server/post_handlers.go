@@ -8,8 +8,15 @@ import (
 
 func (serv *Server) GetPostInfo(w http.ResponseWriter, r *http.Request) {
 	PostId := chi.URLParam(r, "slug")
+	params := r.URL.Query()
+	related, ok := params["related"]
+	if !ok {
+		errText := models.Error{Message: "No related"}
+		WriteToResponse(w, http.StatusBadRequest, errText)
+		return
+	}
 	post := models.PostFull{}
-	post, stat := serv.db.GetPostInfo(PostId)
+	post, stat := serv.db.GetPostInfo(PostId, related)
 	DealGetStatus(w, &post, stat)
 }
 

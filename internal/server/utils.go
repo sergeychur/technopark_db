@@ -105,6 +105,11 @@ func ParseParams(w http.ResponseWriter, r *http.Request,
 		return fmt.Errorf(errText.Message)
 	}
 	*limit = limits[0]
+	if !idRegexp.MatchString(*limit) {
+		errText := models.Error{Message: "Limit incorrect"}
+		WriteToResponse(w, http.StatusBadRequest, errText)
+		return fmt.Errorf(errText.Message)
+	}
 
 	sinces, ok := params["since"]
 	if !ok {
@@ -113,6 +118,7 @@ func ParseParams(w http.ResponseWriter, r *http.Request,
 		return fmt.Errorf(errText.Message)
 	}
 	*since = sinces[0]
+	// TODO:(Me) parse date for correct
 
 	descs, ok := params["desc"]
 	if !ok {
@@ -121,5 +127,15 @@ func ParseParams(w http.ResponseWriter, r *http.Request,
 		return fmt.Errorf(errText.Message)
 	}
 	*desc = descs[0]
-	return nil
+	if *desc == "true" {
+		*desc = "desc"
+		return nil
+	}
+	if *desc == "false" {
+		*desc = "asc"
+		return nil
+	}
+	errText := models.Error{Message: "desc incorrect"}
+	WriteToResponse(w, http.StatusBadRequest, errText)
+	return fmt.Errorf(errText.Message)
 }

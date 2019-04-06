@@ -13,14 +13,19 @@ const (
 
 func (db *DB) CreateForum(forum models.Forum) (models.Forum, int) {
 	log.Println("create forum")
-	ifExistsUser, err := db.IsUserExist(forum.User)
+	tx, err := db.StartTransaction()
+	if err != nil {
+		return models.Forum{}, DBError
+	}
+	defer tx.Rollback()
+	ifExistsUser, err := IsUserExist(tx, forum.User)
 	if err != nil {
 		log.Println(err.Error())
 		return forum, DBError
 	}
 	ifExistsForum := false
 	if ifExistsUser {
-		ifExistsForum, err = db.IsForumExist(forum.Slug)
+		ifExistsForum, err = IsForumExist(tx, forum.Slug)
 		if err != nil {
 			log.Println(err.Error())
 			return forum, DBError
@@ -32,14 +37,18 @@ func (db *DB) CreateForum(forum models.Forum) (models.Forum, int) {
 	}
 
 	if ifExistsUser {
-		_, err := db.db.Exec(CreateForum, forum.Slug, forum.Title, forum.User)
+		_, err := tx.Exec(CreateForum, forum.Slug, forum.Title, forum.User)
 
 		if err != nil {
 			log.Println(err)
 			return forum, DBError
 		}
-
-		return db.GetForum(forum.Slug)
+		err = tx.Commit()
+		forum, resVal := db.GetForum(forum.Slug)
+		if err != nil {
+			return forum, DBError
+		}
+		return forum, resVal
 	}
 	return models.Forum{}, EmptyResult
 }

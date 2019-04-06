@@ -53,3 +53,7 @@ func (db *DB) Start() error {
 func (db *DB) Close() {
 	_ = db.db.Close()
 }
+
+func (db *DB) StartTransaction() (*sql.Tx, error) {
+	return db.db.Begin()
+}
