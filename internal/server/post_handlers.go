@@ -4,12 +4,14 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"net/http"
+	"strings"
 )
 
 func (serv *Server) GetPostInfo(w http.ResponseWriter, r *http.Request) {
-	PostId := chi.URLParam(r, "slug")
+	PostId := chi.URLParam(r, "id")
 	params := r.URL.Query()
-	related, ok := params["related"]
+	relatedStr, ok := params["related"]
+	related := strings.Split(relatedStr[0], ",")
 	if !ok {
 		errText := models.Error{Message: "No related"}
 		WriteToResponse(w, http.StatusBadRequest, errText)
@@ -21,7 +23,7 @@ func (serv *Server) GetPostInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (serv *Server) EditPost(w http.ResponseWriter, r *http.Request) {
-	PostId := chi.URLParam(r, "slug")
+	PostId := chi.URLParam(r, "id")
 	postUpdate := models.PostUpdate{}
 	err := ReadFromBody(r, w, &postUpdate)
 	if err != nil {

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"log"
@@ -15,6 +16,8 @@ const (
 		"FROM users u JOIN threads t ON u.nick_name = t.author " +
 		"WHERE t.forum = $1 AND u.nick_name >= $2" +
 		"ORDER BY nick_name %s LIMIT $3"
+
+	getUserByNick = "SELECT * FROM users WHERE nick_name = $1"
 )
 
 func (db *DB) GetForumUsers(forumId string, limit string,
@@ -50,7 +53,17 @@ func (db *DB) CreateUser(user models.User) (models.User, int) {
 }
 
 func (db *DB) GetUser(userNick string) (models.User, int) {
-	return models.User{}, 0
+	user := models.User{}
+	row := db.db.QueryRow(getUserByNick, userNick)
+	err := row.Scan(&user.Nickname, &user.About, &user.Email,
+		&user.Fullname)
+	if err == sql.ErrNoRows {
+		return user, EmptyResult
+	}
+	if err != nil {
+		return user, DBError
+	}
+	return user, OK
 }
 
 func (db *DB) UpdateUser(userNick string, user models.UserUpdate) (models.User, int) {

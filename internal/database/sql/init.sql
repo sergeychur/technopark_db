@@ -36,7 +36,7 @@ CREATE TABLE threads (
 	CONSTRAINT thread_forum_fk FOREIGN KEY (forum) 
 	REFERENCES forum (slug) ON UPDATE CASCADE ON DELETE NO ACTION,
 	message text NOT NULL,
-	slug text,
+	slug text NULL,
 	title citext NOT NULL,
 	votes integer default 0
 );
@@ -53,7 +53,7 @@ CREATE TABLE posts (
 	message text NOT NULL, 
 	parent bigint default 0, 
 	thread integer,
-	is_edited boolean default true,
+	is_edited boolean default false,
 	CONSTRAINT posts_thread_foreignkey FOREIGN KEY (thread)
 	REFERENCES threads (id) ON UPDATE CASCADE ON DELETE NO ACTION 
 ); 

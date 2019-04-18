@@ -24,7 +24,7 @@ func NewServer(pathToConfig string) (*Server, error) {
 	r.Use(middleware.Recoverer)
 	slugPattern := "^(\\d|\\w|-|_)*(\\w|-|_)(\\d|\\w|-|_)*$"
 	idPattern := "^[0-9]+$"
-	nickPattern := "^[A-Za-z0-9_]$"
+	nickPattern := "^[A-Za-z0-9_]+$"
 
 	r.Post("/forum/create", server.CreateForum)
 	r.Post(fmt.Sprintf("/forum/{slug:%s}/create", slugPattern), server.CreateThread)

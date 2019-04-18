@@ -112,8 +112,12 @@ func (db *DB) GetThreadById(id string) (models.Thread, int) {
 	log.Println("get thread id")
 	row := db.db.QueryRow(getThreadById, id)
 	thread := models.Thread{}
+	slug := sql.NullString{}
 	err := row.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum,
-		&thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
+		&thread.Message, &slug, &thread.Title, &thread.Votes)
+	if slug.Valid {
+		thread.Slug = slug.String
+	}
 	if err == sql.ErrNoRows {
 		return thread, EmptyResult
 	}
