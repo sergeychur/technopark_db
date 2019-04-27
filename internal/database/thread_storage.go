@@ -13,6 +13,8 @@ const (
 	getThreadBySlug      = "SELECT * FROM threads WHERE slug = $1"
 	getThreadById        = "SELECT * FROM threads WHERE id = $1"
 	getForumThreads		 = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3"
+	updateThreadBySlug = "UPDATE threads SET message=$1, title=$2 WHERE slug=$3 AND message != $1 AND message != ''"
+	updateThreadById = "UPDATE threads SET message=$1, title=$2 WHERE id=$3 AND message != $1 AND message != ''"
 )
 
 func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread, int) {
@@ -33,7 +35,7 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 	}
 	ifExistsThread := false
 	if thread.Slug != "" {
-		ifExistsThread, err = IsThreadExist(tx, thread.Slug)
+		ifExistsThread, err = IsThreadExistBySlug(tx, thread.Slug)
 		if err != nil {
 			log.Println(err.Error())
 			return models.Thread{}, DBError
@@ -129,11 +131,49 @@ func (db *DB) GetThreadById(id string) (models.Thread, int) {
 }
 
 func (db *DB) UpdateThreadBySlug(slug string, update models.ThreadUpdate) (models.Thread, int) {
-	return models.Thread{}, 0
+	tx, err := db.StartTransaction()
+	defer tx.Rollback()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+	ifThreadExist, err := IsThreadExistBySlug(tx, slug)
+	if !ifThreadExist {
+		return models.Thread{}, EmptyResult
+	}
+	_, err = tx.Exec(updateThreadBySlug, update.Message, update.Title, slug)
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+
+	return db.GetThreadBySlug(slug)
 }
 
 func (db *DB) UpdateThreadById(id string, update models.ThreadUpdate) (models.Thread, int) {
-	return models.Thread{}, 0
+	tx, err := db.StartTransaction()
+	defer tx.Rollback()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+	ifThreadExist, err := IsThreadExistById(tx, id)
+	if !ifThreadExist {
+		return models.Thread{}, EmptyResult
+	}
+	_, err = tx.Exec(updateThreadById, update.Message, update.Title, id)
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+
+	return db.GetThreadById(id)
 }
 
 func (db *DB) VoteBySlug(slug string, vote models.Vote) (models.Thread, int) {

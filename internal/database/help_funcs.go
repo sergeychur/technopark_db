@@ -7,6 +7,8 @@ import (
 
 const (
 	Check = "SELECT EXISTS( SELECT 1 FROM %s WHERE %s = $1)"
+	getThreadForumById = "SELECT forum FROM threads WHERE id = $1"
+	getThreadForumBySlug = "SELECT forum, id FROM threads WHERE slug = $1"
 )
 
 func IsExist(tx *sql.Tx, pk string, pkName string, table string) (bool, error) {
@@ -27,10 +29,41 @@ func IsForumExist(tx *sql.Tx, slug string) (bool, error) {
 	return IsExist(tx, slug, "slug", "forum")
 }
 
-func IsThreadExist(tx *sql.Tx, slug string) (bool, error) {
+func IsThreadExistBySlug(tx *sql.Tx, slug string) (bool, error) {
 	return IsExist(tx, slug, "slug", "threads")
+}
+
+func IsThreadExistById(tx *sql.Tx, id string) (bool, error) {
+	return IsExist(tx, id, "id", "threads")
 }
 
 func IsPostExist(tx *sql.Tx, id string) (bool, error) {
 		return IsExist(tx, id, "id", "posts")
+}
+
+func GetThreadForumBySlug(tx *sql.Tx, slug string) (string, int, int) {
+	ForumId := ""
+	threadId := 0
+	row := tx.QueryRow(getThreadForumBySlug, slug)
+	err := row.Scan(&ForumId, &threadId)
+	if err == sql.ErrNoRows {
+		return "", 0, EmptyResult
+	}
+	if err != nil {
+		return ForumId, 0, DBError
+	}
+	return ForumId, threadId, OK
+}
+
+func GetThreadForumById(tx *sql.Tx, id string) (string, int) {
+	ForumId := ""
+	row := tx.QueryRow(getThreadForumById, id)
+	err := row.Scan(&ForumId)
+	if err == sql.ErrNoRows {
+		return "", EmptyResult
+	}
+	if err != nil {
+		return ForumId, DBError
+	}
+	return ForumId, OK
 }
