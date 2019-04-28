@@ -17,6 +17,8 @@ type Server struct {
 	config *config.Config
 }
 
+
+
 func NewServer(pathToConfig string) (*Server, error) {
 	server := new(Server)
 	r := chi.NewRouter()
@@ -26,28 +28,30 @@ func NewServer(pathToConfig string) (*Server, error) {
 	idPattern := "^[0-9]+$"
 	nickPattern := "^[A-Za-z0-9_\\.-]+$"
 
-	r.Post("/forum/create", server.CreateForum)
-	r.Post(fmt.Sprintf("/forum/{slug:%s}/create", slugPattern), server.CreateThread)
-	r.Get(fmt.Sprintf("/forum/{slug:%s}/details", slugPattern), server.GetForumInfo)
-	r.Get(fmt.Sprintf("/forum/{slug:%s}/threads", slugPattern), server.GetForumThreads)
-	r.Get(fmt.Sprintf("/forum/{slug:%s}/users", slugPattern), server.GetUsersByForum)
+	subRouter := chi.NewRouter()
+	subRouter.Post("/forum/create", server.CreateForum)
+	subRouter.Post(fmt.Sprintf("/forum/{slug:%s}/create", slugPattern), server.CreateThread)
+	subRouter.Get(fmt.Sprintf("/forum/{slug:%s}/details", slugPattern), server.GetForumInfo)
+	subRouter.Get(fmt.Sprintf("/forum/{slug:%s}/threads", slugPattern), server.GetForumThreads)
+	subRouter.Get(fmt.Sprintf("/forum/{slug:%s}/users", slugPattern), server.GetUsersByForum)
 
-	r.Get(fmt.Sprintf("/post/{id:%s}/details", idPattern), server.GetPostInfo)
-	r.Post(fmt.Sprintf("/post/{id:%s}/details", idPattern), server.EditPost)
+	subRouter.Get(fmt.Sprintf("/post/{id:%s}/details", idPattern), server.GetPostInfo)
+	subRouter.Post(fmt.Sprintf("/post/{id:%s}/details", idPattern), server.EditPost)
 
-	r.Post("/service/clear", server.ClearDB)
-	r.Get("/service/status", server.GetDBInfo)
+	subRouter.Post("/service/clear", server.ClearDB)
+	subRouter.Get("/service/status", server.GetDBInfo)
 
-	r.Post("/thread/{slug_or_id}/create", server.CreateNewThreadPosts)
-	r.Get("/thread/{slug_or_id}/details", server.GetThreadInfo)
-	r.Post("/thread/{slug_or_id}/details", server.UpdateThread)
-	r.Get("/thread/{slug_or_id}/posts", server.GetThreadMessages)
-	r.Post("/thread/{slug_or_id}/vote", server.Vote)
+	subRouter.Post("/thread/{slug_or_id}/create", server.CreateNewThreadPosts)
+	subRouter.Get("/thread/{slug_or_id}/details", server.GetThreadInfo)
+	subRouter.Post("/thread/{slug_or_id}/details", server.UpdateThread)
+	subRouter.Get("/thread/{slug_or_id}/posts", server.GetThreadMessages)
+	subRouter.Post("/thread/{slug_or_id}/vote", server.Vote)
 
-	r.Post(fmt.Sprintf("/user/{nickname:%s}/create", nickPattern), server.CreateUser)
-	r.Get(fmt.Sprintf("/user/{nickname:%s}/profile", nickPattern), server.GetUserInfo)
-	r.Post(fmt.Sprintf("/user/{nickname:%s}/profile", nickPattern), server.UpdateUser)
+	subRouter.Post(fmt.Sprintf("/user/{nickname:%s}/create", nickPattern), server.CreateUser)
+	subRouter.Get(fmt.Sprintf("/user/{nickname:%s}/profile", nickPattern), server.GetUserInfo)
+	subRouter.Post(fmt.Sprintf("/user/{nickname:%s}/profile", nickPattern), server.UpdateUser)
 
+	r.Mount("/api/", subRouter)
 	server.router = r
 
 	newConfig, err := config.NewConfig(pathToConfig)
