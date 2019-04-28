@@ -10,15 +10,15 @@ import (
 )
 
 var (
-	GetPost = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
-	UpdatePost = "UPDATE posts SET message=$1, is_edited='true' WHERE id=$2 AND message != $1 AND message != ''"
-	GetPostsByIds = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM POSTS WHERE id in ($1)"
+	GetPost            = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
+	UpdatePost         = "UPDATE posts SET message=$1, is_edited='true' WHERE id=$2 AND message != $1 AND message != ''"
+	GetPostsByIds      = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM POSTS WHERE id in ($1)"
 	CreatePostInThread = "INSERT INTO posts (message, forum, thread, author, parent, created) " +
 		"select message, forum, cast (thread as integer), author, cast (parent as bigint), " +
 		"cast (created as timestamp)from (values($1, $2, $3, $4, $5, $6)) " +
 		"as t (message, forum, thread, author, parent, created) WHERE EXISTS (SELECT 1 FROM posts where cast(id as text)=$5) OR $5 = '0' RETURNING id"
-	GetPostsFlat = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY id %s LIMIT $2"
-	getPostsTree = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY path %s LIMIT $2"
+	GetPostsFlat       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY id %s LIMIT $2"
+	getPostsTree       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY path %s LIMIT $2"
 	getPostsParentTree = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND " +
 		"id >= $3 ORDER BY path[1] %s, path LIMIT $2"
 )
@@ -40,9 +40,9 @@ func (db *DB) GetPost(postId string) (models.Post, int) {
 
 func (db *DB) GetPostInfo(postId string, related []string) (models.PostFull, int) {
 	log.Println("get post info")
-	subqueries := map[string]bool {
-		"user": false,
-		"forum": false,
+	subqueries := map[string]bool{
+		"user":   false,
+		"forum":  false,
 		"thread": false,
 	}
 	for _, it := range related {
@@ -137,7 +137,7 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 		if err != nil {
 			return models.Posts{}, DBError
 		}
-		if lastInserted  == 0 {
+		if lastInserted == 0 {
 			allFound = false
 			break
 		}
@@ -161,13 +161,13 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 		post := new(models.Post)
 		err = rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum,
 			&post.Message, &post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil{
+		if err != nil {
 			return models.Posts{}, DBError
 		}
 		postsToReturn = append(postsToReturn, post)
 	}
 	if i == 0 {
-		return models.Posts{}, DBError	// because there have to be rows
+		return models.Posts{}, DBError // because there have to be rows
 	}
 	return postsToReturn, retVal
 }
@@ -189,7 +189,7 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 	allFound := true
 	currentTime := time.Now()
 	timeString := currentTime.Format(time.RFC3339)
-	threadId, err  := strconv.Atoi(id)
+	threadId, err := strconv.Atoi(id)
 	postsToReturn := make(models.Posts, 0)
 	for _, post := range posts {
 		lastInserted := 0
@@ -197,7 +197,7 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 		if err != nil {
 			return models.Posts{}, DBError
 		}
-		if lastInserted  == 0 {
+		if lastInserted == 0 {
 			allFound = false
 			break
 		}
@@ -221,13 +221,13 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 		post := new(models.Post)
 		err = rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum,
 			&post.Message, &post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil{
+		if err != nil {
 			return models.Posts{}, DBError
 		}
 		postsToReturn = append(postsToReturn, post)
 	}
 	if i == 0 {
-		return models.Posts{}, DBError	// because there have to be rows
+		return models.Posts{}, DBError // because there have to be rows
 	}
 	return postsToReturn, retVal
 }
@@ -272,10 +272,9 @@ func (db *DB) GetPostsById(id string, limit string, since string,
 	return models.Posts{}, OK
 }
 
-
 func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (models.Posts, int) {
 
-	ifDesc, _ := strconv.ParseBool(desc)	// mb check error
+	ifDesc, _ := strconv.ParseBool(desc) // mb check error
 	strDesc := "ASC"
 	if ifDesc {
 		strDesc = "DESC"
@@ -292,19 +291,19 @@ func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (
 		post := new(models.Post)
 		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil{
+		if err != nil {
 			return models.Posts{}, DBError
 		}
 		posts = append(posts, post)
 	}
 	if i == 0 {
-		return nil, EmptyResult		// dunno if need
+		return nil, EmptyResult // dunno if need
 	}
 	return posts, OK
 }
 
 func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (models.Posts, int) {
-	ifDesc, _ := strconv.ParseBool(desc)	// mb check error
+	ifDesc, _ := strconv.ParseBool(desc) // mb check error
 	strDesc := "ASC"
 	if ifDesc {
 		strDesc = "DESC"
@@ -321,19 +320,19 @@ func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (
 		post := new(models.Post)
 		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil{
+		if err != nil {
 			return models.Posts{}, DBError
 		}
 		posts = append(posts, post)
 	}
 	if i == 0 {
-		return nil, EmptyResult		// dunno if need
+		return nil, EmptyResult // dunno if need
 	}
 	return posts, OK
 }
 
 func (db *DB) GetPostsParentTree(id string, limit string, since string, desc string) (models.Posts, int) {
-	ifDesc, _ := strconv.ParseBool(desc)	// mb check error
+	ifDesc, _ := strconv.ParseBool(desc) // mb check error
 	strDesc := "ASC"
 	if ifDesc {
 		strDesc = "DESC"
@@ -350,13 +349,13 @@ func (db *DB) GetPostsParentTree(id string, limit string, since string, desc str
 		post := new(models.Post)
 		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil{
+		if err != nil {
 			return models.Posts{}, DBError
 		}
 		posts = append(posts, post)
 	}
 	if i == 0 {
-		return nil, EmptyResult		// dunno if need
+		return nil, EmptyResult // dunno if need
 	}
 	return posts, OK
 }

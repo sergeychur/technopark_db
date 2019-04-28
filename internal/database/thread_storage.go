@@ -12,15 +12,15 @@ const (
 	createThreadWithTime = "INSERT INTO threads (slug, created, title, author, forum, message) VALUES($1, $2, $3, $4, $5, $6)"
 	getThreadBySlug      = "SELECT * FROM threads WHERE slug = $1"
 	getThreadById        = "SELECT * FROM threads WHERE id = $1"
-	getForumThreads		 = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3"	// mb change for sql from lections
-	updateThreadBySlug = "UPDATE threads SET message=$1, title=$2 WHERE slug=$3 AND message != $1 AND message != ''"
-	updateThreadById = "UPDATE threads SET message=$1, title=$2 WHERE id=$3 AND message != $1 AND message != ''"
-	voteThread = "INSERT INTO votes(thread, author, is_like) VALUES($1, $2, $3) ON CONFLICT (thread, author) " +
+	getForumThreads      = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3" // mb change for sql from lections
+	updateThreadBySlug   = "UPDATE threads SET message=$1, title=$2 WHERE slug=$3 AND message != $1 AND message != ''"
+	updateThreadById     = "UPDATE threads SET message=$1, title=$2 WHERE id=$3 AND message != $1 AND message != ''"
+	voteThread           = "INSERT INTO votes(thread, author, is_like) VALUES($1, $2, $3) ON CONFLICT (thread, author) " +
 		"DO UPDATE SET is_like = $3"
 )
 
 const (
-	LIKE = true
+	LIKE    = true
 	DISLIKE = false
 )
 
@@ -90,7 +90,7 @@ func (db *DB) GetForumThreads(forumId string, limit string,
 		thread := new(models.Thread)
 		err := rows.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum,
 			&thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
-		if err != nil{
+		if err != nil {
 			return models.Threads{}, DBError
 		}
 		threads = append(threads, thread)

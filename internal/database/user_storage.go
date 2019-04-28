@@ -15,12 +15,12 @@ const (
 		"SELECT u.nick_name, u.about, u.email, u.full_name " +
 		"FROM users u JOIN threads t ON u.nick_name = t.author " +
 		"WHERE t.forum = $1 AND u.nick_name >= $2" +
-		"ORDER BY nick_name %s LIMIT $3"	// change on correct sql from lections
+		"ORDER BY nick_name %s LIMIT $3" // change on correct sql from lections
 
-	getUserByNick = "SELECT * FROM users WHERE nick_name = $1"
+	getUserByNick         = "SELECT * FROM users WHERE nick_name = $1"
 	getUsersByEmailOrNick = "SELECT * FROM users WHERE nick_name = $1 OR email = $2"
-	createUser = "INSERT INTO users (nick_name, email, full_name, about) VALUES($1, $2, $3, $4)"
-	updateUser = "UPDATE users SET about=$2, full_name=$3, email=$4 WHERE nick_name = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE email=$4)"
+	createUser            = "INSERT INTO users (nick_name, email, full_name, about) VALUES($1, $2, $3, $4)"
+	updateUser            = "UPDATE users SET about=$2, full_name=$3, email=$4 WHERE nick_name = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE email=$4)"
 )
 
 func (db *DB) GetForumUsers(forumId string, limit string,
@@ -39,7 +39,7 @@ func (db *DB) GetForumUsers(forumId string, limit string,
 		i++
 		user := new(models.User)
 		err := rows.Scan(&user.Nickname, &user.About, &user.Email, &user.Fullname)
-		if err != nil{
+		if err != nil {
 			log.Println(err)
 			return models.Users{}, DBError
 		}

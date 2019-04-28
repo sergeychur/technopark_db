@@ -17,8 +17,6 @@ type Server struct {
 	config *config.Config
 }
 
-
-
 func NewServer(pathToConfig string) (*Server, error) {
 	server := new(Server)
 	r := chi.NewRouter()

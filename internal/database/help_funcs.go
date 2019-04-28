@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	Check = "SELECT EXISTS( SELECT 1 FROM %s WHERE %s = $1)"
-	getThreadForumById = "SELECT forum FROM threads WHERE id = $1"
+	Check                = "SELECT EXISTS( SELECT 1 FROM %s WHERE %s = $1)"
+	getThreadForumById   = "SELECT forum FROM threads WHERE id = $1"
 	getThreadForumBySlug = "SELECT forum, id FROM threads WHERE slug = $1"
-	getThreadIdBySlug = "SELECT id FROM threads WHERE slug = $1"
+	getThreadIdBySlug    = "SELECT id FROM threads WHERE slug = $1"
 )
 
 func IsExist(tx *sql.Tx, pk string, pkName string, table string) (bool, error) {
@@ -39,7 +39,7 @@ func IsThreadExistById(tx *sql.Tx, id string) (bool, error) {
 }
 
 func IsPostExist(tx *sql.Tx, id string) (bool, error) {
-		return IsExist(tx, id, "id", "posts")
+	return IsExist(tx, id, "id", "posts")
 }
 
 func GetThreadForumBySlug(tx *sql.Tx, slug string) (string, int, int) {
