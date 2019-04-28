@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/go-chi/chi"
+	"github.com/sergeychur/technopark_db/internal/database"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"net/http"
 )
@@ -14,8 +15,16 @@ func (serv *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.Nickname = userNick
-	user, stat := serv.db.CreateUser(user)
-	DealCreateStatus(w, &user, stat)
+	users, stat := serv.db.CreateUser(user)
+	if stat == database.Conflict {
+		DealCreateStatus(w, users, stat)
+		return
+	}
+	if len(users) > 0 {
+		userToReturn := users[0]
+		DealCreateStatus(w, userToReturn, stat)
+	}
+	DealCreateStatus(w, nil, stat)
 }
 
 func (serv *Server) GetUserInfo(w http.ResponseWriter, r *http.Request) {

@@ -15,9 +15,12 @@ const (
 		"SELECT u.nick_name, u.about, u.email, u.full_name " +
 		"FROM users u JOIN threads t ON u.nick_name = t.author " +
 		"WHERE t.forum = $1 AND u.nick_name >= $2" +
-		"ORDER BY nick_name %s LIMIT $3"
+		"ORDER BY nick_name %s LIMIT $3"	// change on correct sql from lections
 
 	getUserByNick = "SELECT * FROM users WHERE nick_name = $1"
+	getUsersByEmailOrNick = "SELECT * FROM users WHERE nick_name = $1 OR email = $2"
+	createUser = "INSERT INTO users (nick_name, email, full_name, about) VALUES($1, $2, $3, $4)"
+	updateUser = "UPDATE users SET about=$2, full_name=$3, email=$4 WHERE nick_name = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE email=$4)"
 )
 
 func (db *DB) GetForumUsers(forumId string, limit string,
@@ -48,8 +51,42 @@ func (db *DB) GetForumUsers(forumId string, limit string,
 	return users, OK
 }
 
-func (db *DB) CreateUser(user models.User) (models.User, int) {
-	return models.User{}, 0
+func (db *DB) CreateUser(user models.User) (models.Users, int) {
+	tx, err := db.StartTransaction()
+	defer tx.Rollback()
+	if err != nil {
+		log.Println(err)
+		return models.Users{}, DBError
+	}
+	rows, err := tx.Query(getUsersByEmailOrNick, user.Nickname, user.Email)
+	if err != nil {
+		log.Println(err)
+		return models.Users{}, DBError
+	}
+	users := make(models.Users, 0)
+	i := 0
+	for rows.Next() {
+		i++
+		user := new(models.User)
+		err := rows.Scan(&user.Nickname, &user.About, &user.Email, &user.Fullname)
+		if err != nil {
+			log.Println(err)
+			return models.Users{}, DBError
+		}
+		users = append(users, user)
+	}
+	_ = rows.Close()
+	if i != 0 {
+		return users, Conflict
+	}
+	_, err = tx.Exec(createUser, user.Nickname, user.Email, user.Fullname, user.About)
+	if err != nil {
+		return nil, DBError
+	}
+	_ = tx.Commit()
+	userToReturn, stat := db.GetUser(user.Nickname)
+	users = append(users, &userToReturn)
+	return users, stat
 }
 
 func (db *DB) GetUser(userNick string) (models.User, int) {
@@ -67,5 +104,27 @@ func (db *DB) GetUser(userNick string) (models.User, int) {
 }
 
 func (db *DB) UpdateUser(userNick string, user models.UserUpdate) (models.User, int) {
-	return models.User{}, 0
+	tx, err := db.StartTransaction()
+	if err != nil {
+		return models.User{}, DBError
+	}
+	defer tx.Rollback()
+	ifUserExists, err := IsUserExist(tx, userNick)
+	if err != nil {
+		return models.User{}, DBError
+	}
+	if !ifUserExists {
+		return models.User{}, EmptyResult
+	}
+	res, err := tx.Exec(updateUser, userNick, user.About, user.Fullname, user.Email)
+	if err != nil {
+		return models.User{}, DBError
+	}
+	num, err := res.RowsAffected()
+	if num != 1 {
+		return models.User{}, Conflict
+	}
+	_ = tx.Commit()
+
+	return db.GetUser(userNick)
 }

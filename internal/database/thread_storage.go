@@ -12,9 +12,16 @@ const (
 	createThreadWithTime = "INSERT INTO threads (slug, created, title, author, forum, message) VALUES($1, $2, $3, $4, $5, $6)"
 	getThreadBySlug      = "SELECT * FROM threads WHERE slug = $1"
 	getThreadById        = "SELECT * FROM threads WHERE id = $1"
-	getForumThreads		 = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3"
+	getForumThreads		 = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3"	// mb change for sql from lections
 	updateThreadBySlug = "UPDATE threads SET message=$1, title=$2 WHERE slug=$3 AND message != $1 AND message != ''"
 	updateThreadById = "UPDATE threads SET message=$1, title=$2 WHERE id=$3 AND message != $1 AND message != ''"
+	voteThread = "INSERT INTO votes(thread, author, is_like) VALUES($1, $2, $3) ON CONFLICT (thread, author) " +
+		"DO UPDATE SET is_like = $3"
+)
+
+const (
+	LIKE = true
+	DISLIKE = false
 )
 
 func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread, int) {
@@ -177,9 +184,62 @@ func (db *DB) UpdateThreadById(id string, update models.ThreadUpdate) (models.Th
 }
 
 func (db *DB) VoteBySlug(slug string, vote models.Vote) (models.Thread, int) {
-	return models.Thread{}, 0
+	tx, err := db.StartTransaction()
+	defer tx.Rollback()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+	id, stat := GetThreadIdBySlug(tx, slug)
+	if stat != OK {
+		return models.Thread{}, stat
+	}
+
+	ifUserExist, err := IsUserExist(tx, vote.Nickname)
+	if !ifUserExist {
+		return models.Thread{}, EmptyResult
+	}
+	voice := LIKE
+	if vote.Voice == -1 {
+		voice = DISLIKE
+	}
+	_, err = tx.Exec(voteThread, id, vote.Nickname, voice)
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+	return db.GetThreadById(id)
 }
 
 func (db *DB) VoteById(id string, vote models.Vote) (models.Thread, int) {
-	return models.Thread{}, 0
+	tx, err := db.StartTransaction()
+	defer tx.Rollback()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+	ifThreadExist, err := IsThreadExistById(tx, id)
+	if !ifThreadExist {
+		return models.Thread{}, EmptyResult
+	}
+	ifUserExist, err := IsUserExist(tx, vote.Nickname)
+	if !ifUserExist {
+		return models.Thread{}, EmptyResult
+	}
+	voice := LIKE
+	if vote.Voice == -1 {
+		voice = DISLIKE
+	}
+	_, err = tx.Exec(voteThread, id, vote.Nickname, voice)
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return models.Thread{}, DBError
+	}
+	return db.GetThreadById(id)
 }

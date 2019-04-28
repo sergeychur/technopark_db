@@ -9,6 +9,7 @@ const (
 	Check = "SELECT EXISTS( SELECT 1 FROM %s WHERE %s = $1)"
 	getThreadForumById = "SELECT forum FROM threads WHERE id = $1"
 	getThreadForumBySlug = "SELECT forum, id FROM threads WHERE slug = $1"
+	getThreadIdBySlug = "SELECT id FROM threads WHERE slug = $1"
 )
 
 func IsExist(tx *sql.Tx, pk string, pkName string, table string) (bool, error) {
@@ -66,4 +67,17 @@ func GetThreadForumById(tx *sql.Tx, id string) (string, int) {
 		return ForumId, DBError
 	}
 	return ForumId, OK
+}
+
+func GetThreadIdBySlug(tx *sql.Tx, slug string) (string, int) {
+	id := ""
+	row := tx.QueryRow(getThreadIdBySlug, slug)
+	err := row.Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", EmptyResult
+	}
+	if err != nil {
+		return id, DBError
+	}
+	return id, OK
 }

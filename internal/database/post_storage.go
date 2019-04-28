@@ -10,13 +10,17 @@ import (
 )
 
 var (
-	GetPost = "SELECT * from posts where id = $1"
+	GetPost = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
 	UpdatePost = "UPDATE posts SET message=$1, is_edited='true' WHERE id=$2 AND message != $1 AND message != ''"
-	GetPostsByIds = "SELECT * FROM POSTS WHERE id in ($1)"
+	GetPostsByIds = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM POSTS WHERE id in ($1)"
 	CreatePostInThread = "INSERT INTO posts (message, forum, thread, author, parent, created) " +
 		"select message, forum, cast (thread as integer), author, cast (parent as bigint), " +
 		"cast (created as timestamp)from (values($1, $2, $3, $4, $5, $6)) " +
 		"as t (message, forum, thread, author, parent, created) WHERE EXISTS (SELECT 1 FROM posts where cast(id as text)=$5) OR $5 = '0' RETURNING id"
+	GetPostsFlat = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY id %s LIMIT $2"
+	getPostsTree = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY path %s LIMIT $2"
+	getPostsParentTree = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND " +
+		"id >= $3 ORDER BY path[1] %s, path LIMIT $2"
 )
 
 func (db *DB) GetPost(postId string) (models.Post, int) {
@@ -232,12 +236,127 @@ func (db *DB) GetPostsBySlug(slug string, limit string, since string,
 	sort string, desc string) (models.Posts, int) {
 	log.Println("get posts by slug")
 	log.Printf("Params: %s, %s, %s,%s, %s", slug, limit, since, sort, desc)
+	id := ""
+	row := db.db.QueryRow(getThreadIdBySlug, slug)
+	err := row.Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, EmptyResult
+	}
+	if err != nil {
+		return nil, DBError
+	}
+	switch sort {
+	case "flat":
+		return db.GetPostsFlat(id, limit, since, desc)
+	case "tree":
+		return db.GetPostsTree(id, limit, since, desc)
+	case "parent_tree":
+		return db.GetPostsParentTree(id, limit, since, desc)
+	}
 	return models.Posts{}, OK
 }
 
 func (db *DB) GetPostsById(id string, limit string, since string,
 	sort string, desc string) (models.Posts, int) {
+	log.Println("get posts by slug")
+	log.Printf("Params: %s, %s, %s,%s, %s", id, limit, since, sort, desc)
+
+	switch sort {
+	case "flat":
+		return db.GetPostsFlat(id, limit, since, desc)
+	case "tree":
+		return db.GetPostsTree(id, limit, since, desc)
+	case "parent_tree":
+		return db.GetPostsParentTree(id, limit, since, desc)
+	}
 	return models.Posts{}, OK
 }
 
 
+func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (models.Posts, int) {
+
+	ifDesc, _ := strconv.ParseBool(desc)	// mb check error
+	strDesc := "ASC"
+	if ifDesc {
+		strDesc = "DESC"
+	}
+	rows, err := db.db.Query(fmt.Sprintf(GetPostsFlat, strDesc), id, limit, since)
+	if err != nil {
+		return nil, DBError
+	}
+	defer rows.Close()
+	i := 0
+	posts := make(models.Posts, 0)
+	for rows.Next() {
+		i++
+		post := new(models.Post)
+		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
+			&post.Parent, &post.Thread, &post.IsEdited)
+		if err != nil{
+			return models.Posts{}, DBError
+		}
+		posts = append(posts, post)
+	}
+	if i == 0 {
+		return nil, EmptyResult		// dunno if need
+	}
+	return posts, OK
+}
+
+func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (models.Posts, int) {
+	ifDesc, _ := strconv.ParseBool(desc)	// mb check error
+	strDesc := "ASC"
+	if ifDesc {
+		strDesc = "DESC"
+	}
+	rows, err := db.db.Query(fmt.Sprintf(getPostsTree, strDesc), id, limit, since)
+	if err != nil {
+		return nil, DBError
+	}
+	defer rows.Close()
+	i := 0
+	posts := make(models.Posts, 0)
+	for rows.Next() {
+		i++
+		post := new(models.Post)
+		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
+			&post.Parent, &post.Thread, &post.IsEdited)
+		if err != nil{
+			return models.Posts{}, DBError
+		}
+		posts = append(posts, post)
+	}
+	if i == 0 {
+		return nil, EmptyResult		// dunno if need
+	}
+	return posts, OK
+}
+
+func (db *DB) GetPostsParentTree(id string, limit string, since string, desc string) (models.Posts, int) {
+	ifDesc, _ := strconv.ParseBool(desc)	// mb check error
+	strDesc := "ASC"
+	if ifDesc {
+		strDesc = "DESC"
+	}
+	rows, err := db.db.Query(fmt.Sprintf(getPostsParentTree, strDesc), id, limit, since)
+	if err != nil {
+		return nil, DBError
+	}
+	defer rows.Close()
+	i := 0
+	posts := make(models.Posts, 0)
+	for rows.Next() {
+		i++
+		post := new(models.Post)
+		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
+			&post.Parent, &post.Thread, &post.IsEdited)
+		if err != nil{
+			return models.Posts{}, DBError
+		}
+		posts = append(posts, post)
+	}
+	if i == 0 {
+		return nil, EmptyResult		// dunno if need
+	}
+	return posts, OK
+}

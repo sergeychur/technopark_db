@@ -83,6 +83,11 @@ func DealGetStatus(w http.ResponseWriter, v interface{}, stat int) {
 		WriteToResponse(w, http.StatusNotFound, errText)
 		return
 	}
+
+	if stat == database.Conflict {
+		errText := models.Error{Message: "Conflict happened"}
+		WriteToResponse(w, http.StatusConflict, errText)
+	}
 }
 
 func SlugOrId(str string) int {

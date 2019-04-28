@@ -78,12 +78,15 @@ func (serv *Server) GetThreadMessages(w http.ResponseWriter, r *http.Request) {
 	slugOrId := SlugOrId(threadId)
 	params := r.URL.Query()
 	limits, ok := params["limit"]
+	limit := ""
 	if !ok {
-		errText := models.Error{Message: "No limit"}
+		/*errText := models.Error{Message: "No limit"}
 		WriteToResponse(w, http.StatusBadRequest, errText)
-		return
+		return*/
+		limit = "100"
+	} else {
+		limit = limits[0]
 	}
-	limit := limits[0]
 
 	sinces, ok := params["since"]
 	if !ok {
@@ -94,12 +97,15 @@ func (serv *Server) GetThreadMessages(w http.ResponseWriter, r *http.Request) {
 	since := sinces[0]
 
 	sorts, ok := params["sort"]
+	sort := ""
 	if !ok {
-		errText := models.Error{Message: "No sort"}
+		/*errText := models.Error{Message: "No sort"}
 		WriteToResponse(w, http.StatusBadRequest, errText)
-		return
+		return*/
+		sort = "flat"
+	} else {
+		sort = sorts[0]
 	}
-	sort := sorts[0]
 
 	descs, ok := params["desc"]
 	if !ok {

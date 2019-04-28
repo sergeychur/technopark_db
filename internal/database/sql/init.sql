@@ -51,7 +51,8 @@ CREATE TABLE posts (
 	CONSTRAINT posts_forum_fk FOREIGN KEY (forum)
 	REFERENCES forum (slug) ON UPDATE CASCADE ON DELETE NO ACTION,
 	message text NOT NULL, 
-	parent bigint default 0, 
+	parent bigint default 0,
+	path bigint[] not null default '{0}',
 	thread integer,
 	is_edited boolean default false,
 	CONSTRAINT posts_thread_foreignkey FOREIGN KEY (thread)
@@ -69,3 +70,34 @@ CREATE TABLE votes (
 	is_like boolean default true, 
 	CONSTRAINT user_thread_unique UNIQUE(author, thread) 
  );
+
+CREATE OR REPLACE FUNCTION vote_update() RETURNS trigger AS $vote_update$
+BEGIN
+	IF (TG_OP = 'UPDATE') THEN
+		UPDATE threads SET votes = CASE WHEN NEW.is_like = true THEN votes + 1
+			ELSE votes - 2
+			END
+		WHERE id = NEW.thread;
+	ELSEIF (TG_OP = 'INSERT') THEN
+		UPDATE threads SET votes = CASE WHEN NEW.is_like = true THEN votes + 1
+																		ELSE votes - 1
+			END
+		WHERE id = NEW.thread;
+	END IF;
+	RETURN NULL;
+END;
+$vote_update$ LANGUAGE plpgsql;
+
+CREATE TRIGGER vote_update AFTER INSERT OR UPDATE ON votes
+	FOR EACH ROW EXECUTE PROCEDURE vote_update();
+
+
+CREATE OR REPLACE FUNCTION post_insert() RETURNS trigger AS $post_insert$
+BEGIN
+	NEW.path := (SELECT path FROM posts WHERE id = NEW.parent) || NEW.id;
+	RETURN NEW;
+END;
+$post_insert$ LANGUAGE plpgsql;
+
+CREATE TRIGGER post_insert BEFORE INSERT ON posts
+	FOR EACH ROW EXECUTE PROCEDURE post_insert();
