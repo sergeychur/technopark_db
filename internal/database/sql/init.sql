@@ -18,7 +18,7 @@ CREATE TABLE users (
 
 CREATE TABLE forum ( 
 	posts bigint NOT NULL default 0, 
-	slug text NOT NULL CONSTRAINT first_key PRIMARY KEY, 
+	slug citext NOT NULL CONSTRAINT first_key PRIMARY KEY,
 	threads integer NOT NULL default 0, 
 	title citext NOT NULL,
 	user_nick citext NOT NULL, 
@@ -31,8 +31,8 @@ CREATE TABLE threads (
 	author citext NOT NULL, 
 	CONSTRAINT thread_user_foreignkey FOREIGN KEY (author) 
 	REFERENCES users (nick_name) ON UPDATE CASCADE ON DELETE NO ACTION, 
-	created TIMESTAMP default now(), 
-	forum text, 
+	created TIMESTAMP WITH TIME ZONE default now(),
+	forum citext,
 	CONSTRAINT thread_forum_fk FOREIGN KEY (forum) 
 	REFERENCES forum (slug) ON UPDATE CASCADE ON DELETE NO ACTION,
 	message text NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE posts (
 	CONSTRAINT posts_user_foreignkey FOREIGN KEY (author)  
 	REFERENCES users (nick_name) ON UPDATE CASCADE ON DELETE NO ACTION, 
 	created TIMESTAMP default now(),
-	forum text,
+	forum citext,
 	CONSTRAINT posts_forum_fk FOREIGN KEY (forum)
 	REFERENCES forum (slug) ON UPDATE CASCADE ON DELETE NO ACTION,
 	message text NOT NULL, 

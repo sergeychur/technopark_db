@@ -10,6 +10,7 @@ const (
 	getThreadForumById   = "SELECT forum FROM threads WHERE id = $1"
 	getThreadForumBySlug = "SELECT forum, id FROM threads WHERE slug = $1"
 	getThreadIdBySlug    = "SELECT id FROM threads WHERE slug = $1"
+	getUserNick = "SELECT nick_name FROM users WHERE nick_name = $1"
 )
 
 func IsExist(tx *sql.Tx, pk string, pkName string, table string) (bool, error) {
@@ -80,4 +81,18 @@ func GetThreadIdBySlug(tx *sql.Tx, slug string) (string, int) {
 		return id, DBError
 	}
 	return id, OK
+}
+
+
+func GetUserNick(tx *sql.Tx, nick string) (string, int) {
+	nickName := ""
+	row := tx.QueryRow(getUserNick, nick)
+	err := row.Scan(&nickName)
+	if err == sql.ErrNoRows {
+		return "", EmptyResult
+	}
+	if err != nil {
+		return nickName, DBError
+	}
+	return nickName, OK
 }

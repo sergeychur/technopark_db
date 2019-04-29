@@ -18,9 +18,17 @@ func (db *DB) CreateForum(forum models.Forum) (models.Forum, int) {
 		return models.Forum{}, DBError
 	}
 	defer tx.Rollback()
-	ifExistsUser, err := IsUserExist(tx, forum.User)
+	/*ifExistsUser, err := IsUserExist(tx, forum.User)
 	if err != nil {
 		log.Println(err.Error())
+		return forum, DBError
+	}*/
+	ifExistsUser := false
+	nick, retStat := GetUserNick(tx, forum.User)
+	if retStat == OK {
+		ifExistsUser = true
+	}
+	if retStat == DBError {
 		return forum, DBError
 	}
 	ifExistsForum := false
@@ -33,11 +41,16 @@ func (db *DB) CreateForum(forum models.Forum) (models.Forum, int) {
 	}
 
 	if ifExistsForum {
+		_ = tx.Rollback()
+		forum, retStat := db.GetForum(forum.Slug)
+		if retStat != OK {
+			return models.Forum{}, retStat
+		}
 		return forum, Conflict
 	}
 
 	if ifExistsUser {
-		_, err := tx.Exec(CreateForum, forum.Slug, forum.Title, forum.User)
+		_, err := tx.Exec(CreateForum, forum.Slug, forum.Title, nick)
 
 		if err != nil {
 			log.Println(err)

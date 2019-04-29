@@ -20,7 +20,8 @@ const (
 	getUserByNick         = "SELECT * FROM users WHERE nick_name = $1"
 	getUsersByEmailOrNick = "SELECT * FROM users WHERE nick_name = $1 OR email = $2"
 	createUser            = "INSERT INTO users (nick_name, email, full_name, about) VALUES($1, $2, $3, $4)"
-	updateUser            = "UPDATE users SET about=$2, full_name=$3, email=$4 WHERE nick_name = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE email=$4)"
+	updateUser            = "UPDATE users SET about=(CASE WHEN $2='' THEN about ELSE $2 END), full_name=(CASE WHEN $3='' THEN full_name ELSE $3 END), " +
+		"email=(CASE WHEN $4='' THEN email ELSE $4 END) WHERE nick_name = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE email=$4)"
 )
 
 func (db *DB) GetForumUsers(forumId string, limit string,

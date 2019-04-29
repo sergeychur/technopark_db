@@ -23,6 +23,7 @@ func (serv *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if len(users) > 0 {
 		userToReturn := users[0]
 		DealCreateStatus(w, userToReturn, stat)
+		return
 	}
 	DealCreateStatus(w, nil, stat)
 }

@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"log"
+	"strconv"
 )
 
 const (
-	createThread         = "INSERT INTO threads (slug, title, author, forum, message) VALUES($1, $2, $3, $4, $5)"
-	createThreadWithTime = "INSERT INTO threads (slug, created, title, author, forum, message) VALUES($1, $2, $3, $4, $5, $6)"
+	createThread         = "INSERT INTO threads (slug, title, author, forum, message) VALUES($1, $2, $3, $4, $5) RETURNING id"
+	createThreadWithTime = "INSERT INTO threads (slug, created, title, author, forum, message) VALUES($1, $2, $3, $4, $5, $6) RETURNING id"
 	getThreadBySlug      = "SELECT * FROM threads WHERE slug = $1"
 	getThreadById        = "SELECT * FROM threads WHERE id = $1"
 	getForumThreads      = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3" // mb change for sql from lections
@@ -51,12 +52,20 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 	if ifExistsThread {
 		return models.Thread{}, Conflict
 	}
-
+	insertedId := -1
 	if thread.Created != "" {
-		_, err = tx.Exec(createThreadWithTime, thread.Slug, thread.Created,
+		row := tx.QueryRow(createThreadWithTime, thread.Slug, thread.Created,
 			thread.Title, thread.Author, forumId, thread.Message)
+		err := row.Scan(&insertedId)
+		if err != nil{
+			return models.Thread{}, DBError
+		}
 	} else {
-		_, err = tx.Exec(createThread, thread.Slug, thread.Title, thread.Author, forumId, thread.Message)
+		row := tx.QueryRow(createThread, thread.Slug, thread.Title, thread.Author, forumId, thread.Message)
+		err := row.Scan(&insertedId)
+		if err != nil{
+			return models.Thread{}, DBError
+		}
 	}
 
 	// TODO(Me): Deal with UNIQUE on thread, some shit now
@@ -68,8 +77,9 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 	if err != nil {
 		return models.Thread{}, DBError
 	}
-	if thread.Slug != "" {
-		return db.GetThreadBySlug(thread.Slug)
+	if insertedId != -1 {
+		ID := strconv.Itoa(insertedId)
+		return db.GetThreadById(ID)
 	}
 	return thread, OK
 }
