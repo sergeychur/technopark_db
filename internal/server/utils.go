@@ -19,6 +19,7 @@ const (
 var (
 	slugRegExp *regexp.Regexp = regexp.MustCompile("^(\\d|\\w|-|_)*(\\w|-|_)(\\d|\\w|-|_)*$")
 	idRegexp   *regexp.Regexp = regexp.MustCompile("^[0-9]+$")
+	noSince = fmt.Errorf("no since")
 )
 
 func WriteToResponse(w http.ResponseWriter, status int, v interface{}) {
@@ -106,41 +107,37 @@ func ParseParams(w http.ResponseWriter, r *http.Request,
 	limits, ok := params["limit"]
 	if !ok {
 		errText := models.Error{Message: "No limit"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
+		WriteToResponse(w, http.StatusNotFound, errText)
 		return fmt.Errorf(errText.Message)
 	}
 	*limit = limits[0]
 	if !idRegexp.MatchString(*limit) {
 		errText := models.Error{Message: "Limit incorrect"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
+		WriteToResponse(w, http.StatusNotFound, errText)
 		return fmt.Errorf(errText.Message)
 	}
-
-	sinces, ok := params["since"]
-	if !ok {
-		errText := models.Error{Message: "No since"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
-		return fmt.Errorf(errText.Message)
-	}
-	*since = sinces[0]
 	// TODO:(Me) parse date for correct
 
 	descs, ok := params["desc"]
 	if !ok {
-		errText := models.Error{Message: "No desc"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
-		return fmt.Errorf(errText.Message)
-	}
-	*desc = descs[0]
-	if *desc == "true" {
-		*desc = "desc"
-		return nil
-	}
-	if *desc == "false" {
 		*desc = "asc"
-		return nil
+	} else {
+		*desc = descs[0]
+		switch *desc {
+		case "true":
+			*desc = "desc"
+		case "false":
+			*desc = "asc"
+		default:
+			errText := models.Error{Message: "desc incorrect"}
+			WriteToResponse(w, http.StatusBadRequest, errText)
+			return fmt.Errorf(errText.Message)
+		}
 	}
-	errText := models.Error{Message: "desc incorrect"}
-	WriteToResponse(w, http.StatusBadRequest, errText)
-	return fmt.Errorf(errText.Message)
+	sinces, ok := params["since"]
+	if !ok {
+		return noSince
+	}
+	*since = sinces[0]
+	return nil
 }

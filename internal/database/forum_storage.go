@@ -7,7 +7,11 @@ import (
 )
 
 const (
-	GetForum    = "SELECT * FROM forum where slug = $1"
+	//GetForum    = "SELECT * FROM forum where slug = $1"
+	GetForum = "SELECT (SELECT count(*) FROM posts WHERE forum = $1) as posts, " +
+		"slug, (SELECT count(*) FROM threads WHERE forum = $1) as threads, " +
+		"title, " +
+		"user_nick FROM forum where slug = $1"
 	CreateForum = "INSERT INTO forum (slug, title, user_nick) VALUES($1, $2, $3)"
 )
 
@@ -18,11 +22,6 @@ func (db *DB) CreateForum(forum models.Forum) (models.Forum, int) {
 		return models.Forum{}, DBError
 	}
 	defer tx.Rollback()
-	/*ifExistsUser, err := IsUserExist(tx, forum.User)
-	if err != nil {
-		log.Println(err.Error())
-		return forum, DBError
-	}*/
 	ifExistsUser := false
 	nick, retStat := GetUserNick(tx, forum.User)
 	if retStat == OK {
@@ -80,3 +79,5 @@ func (db *DB) GetForum(ForumId string) (models.Forum, int) {
 	}
 	return forum, OK
 }
+
+

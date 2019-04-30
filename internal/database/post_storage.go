@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"github.com/lib/pq"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"log"
 	"strconv"
@@ -12,7 +13,7 @@ import (
 var (
 	GetPost            = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
 	UpdatePost         = "UPDATE posts SET message=$1, is_edited='true' WHERE id=$2 AND message != $1 AND message != ''"
-	GetPostsByIds      = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM POSTS WHERE id in ($1)"
+	GetPostsByIds      = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM POSTS WHERE id = ANY($1)"
 	CreatePostInThread = "INSERT INTO posts (message, forum, thread, author, parent, created) " +
 		"select message, forum, cast (thread as integer), author, cast (parent as bigint), " +
 		"cast (created as timestamp)from (values($1, $2, $3, $4, $5, $6)) " +
@@ -119,19 +120,24 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 	if err != nil {
 		return models.Posts{}, DBError
 	}
+	defer tx.Rollback()
 	forumId, threadId, retVal := GetThreadForumBySlug(tx, slug)
 	if retVal != OK {
 		return nil, retVal
 	}
 	insertedIds := make([]int, 0)
-	defer tx.Rollback()
 	stmt, err := tx.Prepare(CreatePostInThread)
+	if err != nil {
+		return nil, DBError
+	}
 	defer stmt.Close()
 	allFound := true
 	currentTime := time.Now()
 	timeString := currentTime.Format(time.RFC3339)
 	postsToReturn := make(models.Posts, 0)
+	i := 0
 	for _, post := range posts {
+		i++
 		lastInserted := 0
 		err = stmt.QueryRow(post.Message, forumId, threadId, post.Author, post.Parent, timeString).Scan(&lastInserted)
 		if err != nil {
@@ -143,19 +149,21 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 		}
 		insertedIds = append(insertedIds, lastInserted)
 	}
+	if i == 0 {
+		return models.Posts{}, OK
+	}
 	retVal = OK
 	if !allFound {
 		return nil, Conflict
 	}
 	_ = stmt.Close()
 	_ = tx.Commit()
-	ids := ConvertIntSliceTostring(insertedIds)
-	rows, err := db.db.Query(GetPostsByIds, ids)
+	rows, err := db.db.Query(GetPostsByIds, pq.Array(insertedIds))
 	if err != nil {
 		return models.Posts{}, DBError
 	}
 	defer rows.Close()
-	i := 0
+	i = 0
 	for rows.Next() {
 		i++
 		post := new(models.Post)
@@ -178,20 +186,25 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 	if err != nil {
 		return models.Posts{}, DBError
 	}
+	defer tx.Rollback()
 	forumId, retVal := GetThreadForumById(tx, id)
 	if retVal != OK {
 		return nil, retVal
 	}
 	insertedIds := make([]int, 0)
-	defer tx.Rollback()
 	stmt, err := tx.Prepare(CreatePostInThread)
+	if err != nil {
+		return nil, DBError
+	}
 	defer stmt.Close()
 	allFound := true
 	currentTime := time.Now()
 	timeString := currentTime.Format(time.RFC3339)
 	threadId, err := strconv.Atoi(id)
 	postsToReturn := make(models.Posts, 0)
+	i := 0
 	for _, post := range posts {
+		i++
 		lastInserted := 0
 		err = stmt.QueryRow(post.Message, forumId, threadId, post.Author, post.Parent, timeString).Scan(&lastInserted)
 		if err != nil {
@@ -203,19 +216,22 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 		}
 		insertedIds = append(insertedIds, lastInserted)
 	}
+	if i == 0 {
+		return models.Posts{}, OK
+	}
 	retVal = OK
 	if !allFound {
 		return nil, Conflict
 	}
 	_ = stmt.Close()
 	_ = tx.Commit()
-	ids := ConvertIntSliceTostring(insertedIds)
-	rows, err := db.db.Query(GetPostsByIds, ids)
+	//ids := ConvertIntSliceTostring(insertedIds)
+	rows, err := db.db.Query(GetPostsByIds, pq.Array(insertedIds))
 	if err != nil {
 		return models.Posts{}, DBError
 	}
 	defer rows.Close()
-	i := 0
+	i = 0
 	for rows.Next() {
 		i++
 		post := new(models.Post)

@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"log"
@@ -13,9 +14,11 @@ const (
 	createThreadWithTime = "INSERT INTO threads (slug, created, title, author, forum, message) VALUES($1, $2, $3, $4, $5, $6) RETURNING id"
 	getThreadBySlug      = "SELECT * FROM threads WHERE slug = $1"
 	getThreadById        = "SELECT * FROM threads WHERE id = $1"
-	getForumThreads      = "SELECT * FROM threads WHERE forum = $1 AND created >= $2 ORDER BY created %s LIMIT $3" // mb change for sql from lections
-	updateThreadBySlug   = "UPDATE threads SET message=$1, title=$2 WHERE slug=$3 AND message != $1 AND message != ''"
-	updateThreadById     = "UPDATE threads SET message=$1, title=$2 WHERE id=$3 AND message != $1 AND message != ''"
+	getForumThreadsPart1      = "SELECT * FROM threads WHERE forum = $1 " // mb change for sql from lections
+	sincePart = "AND created %s $2 "
+	getForumThreadsPart2      = "ORDER BY created %s LIMIT " // mb change for sql from lections
+	updateThreadBySlug   = "UPDATE threads SET message=CASE $1 WHEN '' THEN message ELSE $1 END, title=CASE $2 WHEN '' THEN title ELSE $2 END WHERE slug=$3"
+	updateThreadById     = "UPDATE threads SET message=CASE $1 WHEN '' THEN message ELSE $1 END, title=CASE $2 WHEN '' THEN title ELSE $2 END WHERE id=$3"
 	voteThread           = "INSERT INTO votes(thread, author, is_like) VALUES($1, $2, $3) ON CONFLICT (thread, author) " +
 		"DO UPDATE SET is_like = $3"
 )
@@ -37,8 +40,12 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 		log.Println(err.Error())
 		return models.Thread{}, DBError
 	}
-	ifExistsForum, err := IsForumExist(tx, forumId)
-	if !ifExistsUser || !ifExistsForum {
+	//ifExistsForum, err := IsForumExist(tx, forumId)
+	forumId, stat := GetForumId(tx, forumId)
+	if stat == DBError {
+		return models.Thread{}, stat
+	}
+	if !ifExistsUser || stat == EmptyResult {
 		return models.Thread{}, EmptyResult
 	}
 	ifExistsThread := false
@@ -50,7 +57,12 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 		}
 	}
 	if ifExistsThread {
-		return models.Thread{}, Conflict
+		_ = tx.Rollback()
+		threadToReturn, stat := db.GetThreadBySlug(thread.Slug)
+		if stat != OK {
+			return models.Thread{}, stat
+		}
+		return threadToReturn, Conflict
 	}
 	insertedId := -1
 	if thread.Created != "" {
@@ -87,10 +99,32 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 func (db *DB) GetForumThreads(forumId string, limit string,
 	since string, desc string) (models.Threads, int) {
 	log.Println("get forum threads")
-
-	rows, err := db.db.Query(fmt.Sprintf(getForumThreads, desc), forumId, since, limit)
+	ifExist := false
+	err := db.db.QueryRow("SELECT EXISTS(SELECT 1 FROM forum where slug = $1)", forumId).Scan(&ifExist)
 	if err != nil {
-		return models.Threads{}, DBError
+		return nil, DBError
+	}
+	if !ifExist {
+		return nil, EmptyResult
+	}
+	query := ""
+	rows := &sql.Rows{}
+	err = errors.New("")
+	actualSince := ""
+	if since != "" {
+		if desc == "asc" {
+			actualSince = fmt.Sprintf(sincePart, ">=")
+		} else {
+			actualSince = fmt.Sprintf(sincePart, "<=")
+		}
+		query = getForumThreadsPart1 + actualSince + getForumThreadsPart2 + "$3"
+		rows, err = db.db.Query(fmt.Sprintf(query, desc), forumId, since, limit)
+	} else {
+		query = getForumThreadsPart1 + getForumThreadsPart2 + "$2"
+		rows, err = db.db.Query(fmt.Sprintf(query, desc), forumId, limit)
+	}
+	if err != nil {
+		return nil, DBError
 	}
 	defer rows.Close()
 	threads := models.Threads{}
@@ -106,7 +140,7 @@ func (db *DB) GetForumThreads(forumId string, limit string,
 		threads = append(threads, thread)
 	}
 	if i == 0 {
-		return models.Threads{}, EmptyResult
+		return models.Threads{}, OK
 	}
 	return threads, OK
 }

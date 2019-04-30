@@ -36,7 +36,7 @@ CREATE TABLE threads (
 	CONSTRAINT thread_forum_fk FOREIGN KEY (forum) 
 	REFERENCES forum (slug) ON UPDATE CASCADE ON DELETE NO ACTION,
 	message text NOT NULL,
-	slug text NULL,
+	slug citext NULL,
 	title citext NOT NULL,
 	votes integer default 0
 );
@@ -74,10 +74,17 @@ CREATE TABLE votes (
 CREATE OR REPLACE FUNCTION vote_update() RETURNS trigger AS $vote_update$
 BEGIN
 	IF (TG_OP = 'UPDATE') THEN
-		UPDATE threads SET votes = CASE WHEN NEW.is_like = true THEN votes + 1
-			ELSE votes - 2
-			END
-		WHERE id = NEW.thread;
+	  IF OLD.is_like = false THEN
+			UPDATE threads SET votes = CASE WHEN NEW.is_like = true THEN votes + 2
+				ELSE votes
+				END
+			WHERE id = NEW.thread;
+		ELSE
+			UPDATE threads SET votes = CASE WHEN NEW.is_like = true THEN votes
+																			ELSE votes - 2
+				END
+			WHERE id = NEW.thread;
+		END IF;
 	ELSEIF (TG_OP = 'INSERT') THEN
 		UPDATE threads SET votes = CASE WHEN NEW.is_like = true THEN votes + 1
 																		ELSE votes - 1

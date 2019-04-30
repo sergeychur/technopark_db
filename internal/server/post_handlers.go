@@ -11,11 +11,12 @@ func (serv *Server) GetPostInfo(w http.ResponseWriter, r *http.Request) {
 	PostId := chi.URLParam(r, "id")
 	params := r.URL.Query()
 	relatedStr, ok := params["related"]
-	related := strings.Split(relatedStr[0], ",")
-	if !ok {
-		errText := models.Error{Message: "No related"}
+	related := make([]string, 0)
+	if ok {
+		/*errText := models.Error{Message: "No related"}
 		WriteToResponse(w, http.StatusBadRequest, errText)
-		return
+		return*/
+		related = strings.Split(relatedStr[0], ",")
 	}
 	post := models.PostFull{}
 	post, stat := serv.db.GetPostInfo(PostId, related)

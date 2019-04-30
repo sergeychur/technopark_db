@@ -45,6 +45,10 @@ func (serv *Server) GetForumThreads(w http.ResponseWriter, r *http.Request) {
 		desc  = ""
 	)
 	err := ParseParams(w, r, &limit, &since, &desc)
+	if err == noSince {
+		err = nil
+		since = ""
+	}
 	if err != nil {
 		return
 	}
