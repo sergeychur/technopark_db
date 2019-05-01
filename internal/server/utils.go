@@ -20,6 +20,7 @@ var (
 	slugRegExp *regexp.Regexp = regexp.MustCompile("^(\\d|\\w|-|_)*(\\w|-|_)(\\d|\\w|-|_)*$")
 	idRegexp   *regexp.Regexp = regexp.MustCompile("^[0-9]+$")
 	noSince = fmt.Errorf("no since")
+	noLimit = fmt.Errorf("no limit")
 )
 
 func WriteToResponse(w http.ResponseWriter, status int, v interface{}) {
@@ -106,9 +107,9 @@ func ParseParams(w http.ResponseWriter, r *http.Request,
 	params := r.URL.Query()
 	limits, ok := params["limit"]
 	if !ok {
-		errText := models.Error{Message: "No limit"}
-		WriteToResponse(w, http.StatusNotFound, errText)
-		return fmt.Errorf(errText.Message)
+		//errText := models.Error{Message: "No limit"}
+		//WriteToResponse(w, http.StatusNotFound, errText)
+		return noLimit
 	}
 	*limit = limits[0]
 	if !idRegexp.MatchString(*limit) {

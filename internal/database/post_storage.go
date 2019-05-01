@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/lib/pq"
 	"github.com/sergeychur/technopark_db/internal/models"
@@ -12,16 +13,22 @@ import (
 
 var (
 	GetPost            = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
-	UpdatePost         = "UPDATE posts SET message=$1, is_edited='true' WHERE id=$2 AND message != $1 AND message != ''"
+	UpdatePost         = "UPDATE posts SET message=CASE WHEN $1=''THEN message ELSE $1 END, " +
+		"is_edited=CASE WHEN $1='' OR $1=message THEN is_edited ELSE true END WHERE id=$2"
 	GetPostsByIds      = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM POSTS WHERE id = ANY($1)"
 	CreatePostInThread = "INSERT INTO posts (message, forum, thread, author, parent, created) " +
 		"select message, forum, cast (thread as integer), author, cast (parent as bigint), " +
 		"cast (created as timestamp)from (values($1, $2, $3, $4, $5, $6)) " +
-		"as t (message, forum, thread, author, parent, created) WHERE EXISTS (SELECT 1 FROM posts where cast(id as text)=$5) OR $5 = '0' RETURNING id"
-	GetPostsFlat       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY id %s LIMIT $2"
-	getPostsTree       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND id >= $3 ORDER BY path %s LIMIT $2"
-	getPostsParentTree = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 AND " +
-		"id >= $3 ORDER BY path[1] %s, path LIMIT $2"
+		"as t (message, forum, thread, author, parent, created) WHERE EXISTS (SELECT 1 FROM posts where cast(id as text)=$5 AND thread::text=$3) OR $5 = '0' RETURNING id"
+	GetPostsFlatPart1       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
+	GetPostsSincePart = "AND id %s $3 "
+	GetPostsFlatPart2 = "ORDER BY id %s LIMIT $2"
+	GetPostsTreePart1       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
+		/*"AND id >= $3 "*/
+	GetPostsTreePart2 = 	"ORDER BY path %s LIMIT $2"
+	GetPostsParentTreePart1 = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
+		/*"AND id >= $3 " +*/
+	GetPostsParentTreePart2 = "ORDER BY path[1] %s, path LIMIT $2"
 )
 
 func (db *DB) GetPost(postId string) (models.Post, int) {
@@ -140,13 +147,17 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 		i++
 		lastInserted := 0
 		err = stmt.QueryRow(post.Message, forumId, threadId, post.Author, post.Parent, timeString).Scan(&lastInserted)
-		if err != nil {
-			return models.Posts{}, DBError
-		}
-		if lastInserted == 0 {
+		if err == sql.ErrNoRows {
 			allFound = false
 			break
 		}
+		if err != nil {
+			return models.Posts{}, DBError
+		}
+		/*if lastInserted == 0 {
+			allFound = false
+			break
+		}*/
 		insertedIds = append(insertedIds, lastInserted)
 	}
 	if i == 0 {
@@ -225,7 +236,6 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 	}
 	_ = stmt.Close()
 	_ = tx.Commit()
-	//ids := ConvertIntSliceTostring(insertedIds)
 	rows, err := db.db.Query(GetPostsByIds, pq.Array(insertedIds))
 	if err != nil {
 		return models.Posts{}, DBError
@@ -289,13 +299,26 @@ func (db *DB) GetPostsById(id string, limit string, since string,
 }
 
 func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (models.Posts, int) {
-
 	ifDesc, _ := strconv.ParseBool(desc) // mb check error
 	strDesc := "ASC"
 	if ifDesc {
 		strDesc = "DESC"
 	}
-	rows, err := db.db.Query(fmt.Sprintf(GetPostsFlat, strDesc), id, limit, since)
+	rows := &sql.Rows{}
+	err := errors.New("")
+	if since != "" {
+		actualSince := ""
+		if ifDesc {
+			actualSince = fmt.Sprintf(GetPostsSincePart, "<=")
+		} else {
+			actualSince = fmt.Sprintf(GetPostsSincePart, "=>")
+		}
+		query := GetPostsFlatPart1 + actualSince + GetPostsFlatPart2
+		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
+	} else {
+		query := GetPostsFlatPart1 + GetPostsFlatPart2
+		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit)
+	}
 	if err != nil {
 		return nil, DBError
 	}
@@ -324,7 +347,22 @@ func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (
 	if ifDesc {
 		strDesc = "DESC"
 	}
-	rows, err := db.db.Query(fmt.Sprintf(getPostsTree, strDesc), id, limit, since)
+	rows := &sql.Rows{}
+	err := errors.New("")
+	if since != "" {
+		actualSince := ""
+		if ifDesc {
+			actualSince = fmt.Sprintf(GetPostsSincePart, "<=")
+		} else {
+			actualSince = fmt.Sprintf(GetPostsSincePart, "=>")
+		}
+		query := GetPostsTreePart1 + actualSince + GetPostsTreePart2
+		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
+	} else {
+		query := GetPostsTreePart1 + GetPostsTreePart2
+		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit)
+	}
+	//rows, err := db.db.Query(fmt.Sprintf(getPostsTree, strDesc), id, limit, since)
 	if err != nil {
 		return nil, DBError
 	}
@@ -353,7 +391,22 @@ func (db *DB) GetPostsParentTree(id string, limit string, since string, desc str
 	if ifDesc {
 		strDesc = "DESC"
 	}
-	rows, err := db.db.Query(fmt.Sprintf(getPostsParentTree, strDesc), id, limit, since)
+	rows := &sql.Rows{}
+	err := errors.New("")
+	if since != "" {
+		actualSince := ""
+		if ifDesc {
+			actualSince = fmt.Sprintf(GetPostsSincePart, "<=")
+		} else {
+			actualSince = fmt.Sprintf(GetPostsSincePart, "=>")
+		}
+		query := GetPostsParentTreePart1 + actualSince + GetPostsParentTreePart2
+		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
+	} else {
+		query := GetPostsParentTreePart1 + GetPostsParentTreePart2
+		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit)
+	}
+	//rows, err := db.db.Query(fmt.Sprintf(getPostsParentTree, strDesc), id, limit, since)
 	if err != nil {
 		return nil, DBError
 	}

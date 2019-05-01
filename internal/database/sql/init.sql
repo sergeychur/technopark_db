@@ -10,7 +10,7 @@ DROP TABLE IF EXISTS users;
 CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TABLE users ( 
-	nick_name citext NOT NULL CONSTRAINT firstkey PRIMARY KEY, 
+	nick_name citext COLLATE "C" NOT NULL CONSTRAINT firstkey PRIMARY KEY,
 	about text, 
 	email citext NOT NULL UNIQUE, 
 	full_name citext NOT NULL

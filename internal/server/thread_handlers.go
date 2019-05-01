@@ -80,40 +80,34 @@ func (serv *Server) GetThreadMessages(w http.ResponseWriter, r *http.Request) {
 	limits, ok := params["limit"]
 	limit := ""
 	if !ok {
-		/*errText := models.Error{Message: "No limit"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
-		return*/
 		limit = "100"
 	} else {
 		limit = limits[0]
 	}
 
 	sinces, ok := params["since"]
-	if !ok {
-		errText := models.Error{Message: "No since"}
+	since := ""
+	if ok {
+		/*errText := models.Error{Message: "No since"}
 		WriteToResponse(w, http.StatusBadRequest, errText)
-		return
+		return*/
+		since = sinces[0]
 	}
-	since := sinces[0]
-
 	sorts, ok := params["sort"]
 	sort := ""
 	if !ok {
-		/*errText := models.Error{Message: "No sort"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
-		return*/
 		sort = "flat"
 	} else {
 		sort = sorts[0]
 	}
-
 	descs, ok := params["desc"]
-	if !ok {
-		errText := models.Error{Message: "No desc"}
+	desc := "false"
+	if ok {
+		/*errText := models.Error{Message: "No desc"}
 		WriteToResponse(w, http.StatusBadRequest, errText)
-		return
+		return*/
+		desc = descs[0]
 	}
-	desc := descs[0]
 	posts := models.Posts{}
 	stat := 0
 	if slugOrId == slug {

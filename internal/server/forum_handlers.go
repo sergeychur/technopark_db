@@ -49,6 +49,11 @@ func (serv *Server) GetForumThreads(w http.ResponseWriter, r *http.Request) {
 		err = nil
 		since = ""
 	}
+	if err == noLimit {
+		errText := models.Error{Message: "No limit"}
+		WriteToResponse(w, http.StatusNotFound, errText)
+		return
+	}
 	if err != nil {
 		return
 	}
@@ -66,6 +71,14 @@ func (serv *Server) GetUsersByForum(w http.ResponseWriter, r *http.Request) {
 		desc  = ""
 	)
 	err := ParseParams(w, r, &limit, &since, &desc)
+	if err == noLimit {
+		err = nil
+		limit = ""
+	}
+	if err == noSince {
+		err = nil
+		since = ""
+	}
 	if err != nil {
 		return
 	}

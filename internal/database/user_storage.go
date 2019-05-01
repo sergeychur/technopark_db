@@ -8,14 +8,16 @@ import (
 )
 
 const (
-	getForumUsers = "SELECT u.nick_name, u.about, u.email, u.full_name " +
+	getForumUsersPart1 = "SELECT u.nick_name, u.about, u.email, u.full_name " +
 		"FROM users u JOIN posts p ON u.nick_name = p.author " +
-		"WHERE p.forum = $1 AND u.nick_name >= $2" +
-		"UNION " +
+		"WHERE p.forum = $1 "
+	getForumUsersSincePart = "AND u.nick_name %s $2 "
+	getForumUsersPart2 = "UNION " +
 		"SELECT u.nick_name, u.about, u.email, u.full_name " +
 		"FROM users u JOIN threads t ON u.nick_name = t.author " +
-		"WHERE t.forum = $1 AND u.nick_name >= $2" +
-		"ORDER BY nick_name %s LIMIT $3" // change on correct sql from lections
+		"WHERE t.forum = $1 "
+		//"AND u.nick_name >= $2 " +
+	getForumUsersFinPart = `ORDER BY nick_name  %s LIMIT ` // change on correct sql from lections
 
 	getUserByNick         = "SELECT * FROM users WHERE nick_name = $1"
 	getUsersByEmailOrNick = "SELECT * FROM users WHERE nick_name = $1 OR email = $2"
@@ -27,17 +29,43 @@ const (
 func (db *DB) GetForumUsers(forumId string, limit string,
 	since string, desc string) (models.Users, int) {
 	log.Println("get forum users")
+	query := ""
+	rows := &sql.Rows{}
+	//err := errors.New("")
+	ifExist := false
+	err := db.db.QueryRow("SELECT EXISTS(SELECT 1 FROM forum where slug = $1)", forumId).Scan(&ifExist)
+	if err != nil {
+		return nil, DBError
+	}
+	if !ifExist {
+		return nil, EmptyResult
+	}
+	if limit == "" {
+		limit = "100"
+	}
 
-	rows, err := db.db.Query(fmt.Sprintf(getForumUsers, desc), forumId, since, limit)
+	if since != "" {
+		actualSince := ""
+		if desc == "asc" || desc == "" {
+			actualSince = fmt.Sprintf(getForumUsersSincePart, ">")
+		} else {
+			actualSince = fmt.Sprintf(getForumUsersSincePart, "<")
+		}
+		query = getForumUsersPart1 + actualSince + getForumUsersPart2 + actualSince + getForumUsersFinPart + "$3"
+		rows, err = db.db.Query(fmt.Sprintf(query, desc), forumId, since, limit)
+	} else {
+		query = getForumUsersPart1 + getForumUsersPart2 + getForumUsersFinPart + "$2"
+		rows, err = db.db.Query(fmt.Sprintf(query, desc), forumId, limit)
+	}
 	if err != nil {
 		log.Println(err)
 		return models.Users{}, DBError
 	}
 	defer rows.Close()
 	users := models.Users{}
-	i := 0
+	//i := 0
 	for rows.Next() {
-		i++
+		//i++
 		user := new(models.User)
 		err := rows.Scan(&user.Nickname, &user.About, &user.Email, &user.Fullname)
 		if err != nil {
@@ -46,9 +74,9 @@ func (db *DB) GetForumUsers(forumId string, limit string,
 		}
 		users = append(users, user)
 	}
-	if i == 0 {
+	/*if i == 0 {
 		return models.Users{}, EmptyResult
-	}
+	}*/
 	return users, OK
 }
 
