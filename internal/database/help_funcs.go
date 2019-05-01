@@ -110,3 +110,4 @@ func GetForumId(tx *sql.Tx, forumId string) (string, int) {
 	}
 	return retForumId, OK
 }
+

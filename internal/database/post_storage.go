@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/lib/pq"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"log"
 	"strconv"
@@ -15,20 +14,20 @@ var (
 	GetPost            = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
 	UpdatePost         = "UPDATE posts SET message=CASE WHEN $1=''THEN message ELSE $1 END, " +
 		"is_edited=CASE WHEN $1='' OR $1=message THEN is_edited ELSE true END WHERE id=$2"
-	GetPostsByIds      = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM POSTS WHERE id = ANY($1)"
-	CreatePostInThread = "INSERT INTO posts (message, forum, thread, author, parent, created) " +
-		"select message, forum, cast (thread as integer), author, cast (parent as bigint), " +
-		"cast (created as timestamp)from (values($1, $2, $3, $4, $5, $6)) " +
-		"as t (message, forum, thread, author, parent, created) WHERE EXISTS (SELECT 1 FROM posts where cast(id as text)=$5 AND thread::text=$3) OR $5 = '0' RETURNING id"
+	InsertPost = "INSERT INTO POSTS (message, forum, thread, author, parent, created) VALUES($1, $2, $3, $4, $5, $6) " +
+		"RETURNING id, author, created, forum, message, parent, thread, is_edited"
 	GetPostsFlatPart1       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
-	GetPostsSincePart = "AND id %s $3 "
+	GetPostsFlatSincePart = "AND id %s $3 "
 	GetPostsFlatPart2 = "ORDER BY id %s LIMIT $2"
 	GetPostsTreePart1       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
-		/*"AND id >= $3 "*/
 	GetPostsTreePart2 = 	"ORDER BY path %s LIMIT $2"
+	GetPostsTreeSincePart = "AND path %s (SELECT path FROM posts WHERE id = $3) "
 	GetPostsParentTreePart1 = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
-		/*"AND id >= $3 " +*/
-	GetPostsParentTreePart2 = "ORDER BY path[1] %s, path LIMIT $2"
+	//GetPostsParentTreePart2 = "ORDER BY path[1] %s, path "
+	GetPostsParentTreePart2 = "ORDER BY path "
+	GetPostsParentTreePart2Alt = "AND path[1] IN (SELECT id FROM posts WHERE thread=$1 AND parent=0 ORDER BY id %s LIMIT $2) ORDER BY path[1] %s, path"
+	GetPostsParentTreeSincePart = "AND path[1] IN (SELECT id FROM posts WHERE parent=0 AND id %s $3 ORDER BY id %s LIMIT $2) "
+	// LIMIT $2
 )
 
 func (db *DB) GetPost(postId string) (models.Post, int) {
@@ -132,63 +131,39 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 	if retVal != OK {
 		return nil, retVal
 	}
-	insertedIds := make([]int, 0)
-	stmt, err := tx.Prepare(CreatePostInThread)
+	postsToReturn := make(models.Posts, 0)
+	currentTime := time.Now()
+	timeString := currentTime.Format(time.RFC3339)
+	for _, post := range posts {
+		ifUserExist, err := IsUserExist(tx, post.Author)
+		if post.Parent != 0 {
+			ifParentExist := false
+			err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM POSTS WHERE id = $1 AND thread = $2)", post.Parent, threadId).Scan(&ifParentExist)
+			if err != nil {
+				return nil, DBError
+			}
+			if !ifParentExist {
+				return nil, Conflict
+			}
+		}
+
+		if !ifUserExist {
+			return nil, EmptyResult
+		}
+		curPost := models.Post{}
+		err = tx.QueryRow(InsertPost, post.Message, forumId, threadId, post.Author, post.Parent,
+			timeString).Scan(&curPost.ID, &curPost.Author, &curPost.Created,
+			&curPost.Forum, &curPost.Message, &curPost.Parent, &curPost.Thread, &curPost.IsEdited)
+		if err != nil {
+			return nil, DBError
+		}
+		postsToReturn = append(postsToReturn, &curPost)
+	}
+	err = tx.Commit()
 	if err != nil {
 		return nil, DBError
 	}
-	defer stmt.Close()
-	allFound := true
-	currentTime := time.Now()
-	timeString := currentTime.Format(time.RFC3339)
-	postsToReturn := make(models.Posts, 0)
-	i := 0
-	for _, post := range posts {
-		i++
-		lastInserted := 0
-		err = stmt.QueryRow(post.Message, forumId, threadId, post.Author, post.Parent, timeString).Scan(&lastInserted)
-		if err == sql.ErrNoRows {
-			allFound = false
-			break
-		}
-		if err != nil {
-			return models.Posts{}, DBError
-		}
-		/*if lastInserted == 0 {
-			allFound = false
-			break
-		}*/
-		insertedIds = append(insertedIds, lastInserted)
-	}
-	if i == 0 {
-		return models.Posts{}, OK
-	}
-	retVal = OK
-	if !allFound {
-		return nil, Conflict
-	}
-	_ = stmt.Close()
-	_ = tx.Commit()
-	rows, err := db.db.Query(GetPostsByIds, pq.Array(insertedIds))
-	if err != nil {
-		return models.Posts{}, DBError
-	}
-	defer rows.Close()
-	i = 0
-	for rows.Next() {
-		i++
-		post := new(models.Post)
-		err = rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum,
-			&post.Message, &post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil {
-			return models.Posts{}, DBError
-		}
-		postsToReturn = append(postsToReturn, post)
-	}
-	if i == 0 {
-		return models.Posts{}, DBError // because there have to be rows
-	}
-	return postsToReturn, retVal
+	return postsToReturn, OK
 }
 
 func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int) {
@@ -202,60 +177,41 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 	if retVal != OK {
 		return nil, retVal
 	}
-	insertedIds := make([]int, 0)
-	stmt, err := tx.Prepare(CreatePostInThread)
+	postsToReturn := make(models.Posts, 0)
+	currentTime := time.Now()
+	timeString := currentTime.Format(time.RFC3339)
+	for _, post := range posts {
+		ifUserExist, err := IsUserExist(tx, post.Author)
+		if err != nil {
+			return nil, DBError
+		}
+		if post.Parent != 0 {
+			ifParentExist := false
+			err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM POSTS WHERE id = $1 AND thread = $2)", post.Parent, id).Scan(&ifParentExist)
+			if err != nil {
+				return nil, DBError
+			}
+			if !ifParentExist {
+				return nil, Conflict
+			}
+		}
+		if !ifUserExist {
+			return nil, EmptyResult
+		}
+		curPost := models.Post{}
+		err = tx.QueryRow(InsertPost, post.Message, forumId, id, post.Author, post.Parent,
+			timeString).Scan(&curPost.ID, &curPost.Author, &curPost.Created,
+			&curPost.Forum, &curPost.Message, &curPost.Parent, &curPost.Thread, &curPost.IsEdited)
+		if err != nil {
+			return nil, DBError
+		}
+		postsToReturn = append(postsToReturn, &curPost)
+	}
+	err = tx.Commit()
 	if err != nil {
 		return nil, DBError
 	}
-	defer stmt.Close()
-	allFound := true
-	currentTime := time.Now()
-	timeString := currentTime.Format(time.RFC3339)
-	threadId, err := strconv.Atoi(id)
-	postsToReturn := make(models.Posts, 0)
-	i := 0
-	for _, post := range posts {
-		i++
-		lastInserted := 0
-		err = stmt.QueryRow(post.Message, forumId, threadId, post.Author, post.Parent, timeString).Scan(&lastInserted)
-		if err != nil {
-			return models.Posts{}, DBError
-		}
-		if lastInserted == 0 {
-			allFound = false
-			break
-		}
-		insertedIds = append(insertedIds, lastInserted)
-	}
-	if i == 0 {
-		return models.Posts{}, OK
-	}
-	retVal = OK
-	if !allFound {
-		return nil, Conflict
-	}
-	_ = stmt.Close()
-	_ = tx.Commit()
-	rows, err := db.db.Query(GetPostsByIds, pq.Array(insertedIds))
-	if err != nil {
-		return models.Posts{}, DBError
-	}
-	defer rows.Close()
-	i = 0
-	for rows.Next() {
-		i++
-		post := new(models.Post)
-		err = rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum,
-			&post.Message, &post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil {
-			return models.Posts{}, DBError
-		}
-		postsToReturn = append(postsToReturn, post)
-	}
-	if i == 0 {
-		return models.Posts{}, DBError // because there have to be rows
-	}
-	return postsToReturn, retVal
+	return postsToReturn, OK
 }
 
 func (db *DB) GetPostsBySlug(slug string, limit string, since string,
@@ -309,9 +265,9 @@ func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (
 	if since != "" {
 		actualSince := ""
 		if ifDesc {
-			actualSince = fmt.Sprintf(GetPostsSincePart, "<=")
+			actualSince = fmt.Sprintf(GetPostsFlatSincePart, "<")
 		} else {
-			actualSince = fmt.Sprintf(GetPostsSincePart, "=>")
+			actualSince = fmt.Sprintf(GetPostsFlatSincePart, ">")
 		}
 		query := GetPostsFlatPart1 + actualSince + GetPostsFlatPart2
 		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
@@ -323,10 +279,8 @@ func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (
 		return nil, DBError
 	}
 	defer rows.Close()
-	i := 0
 	posts := make(models.Posts, 0)
 	for rows.Next() {
-		i++
 		post := new(models.Post)
 		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
@@ -334,9 +288,6 @@ func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (
 			return models.Posts{}, DBError
 		}
 		posts = append(posts, post)
-	}
-	if i == 0 {
-		return nil, EmptyResult // dunno if need
 	}
 	return posts, OK
 }
@@ -352,9 +303,9 @@ func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (
 	if since != "" {
 		actualSince := ""
 		if ifDesc {
-			actualSince = fmt.Sprintf(GetPostsSincePart, "<=")
+			actualSince = fmt.Sprintf(GetPostsTreeSincePart, "<")
 		} else {
-			actualSince = fmt.Sprintf(GetPostsSincePart, "=>")
+			actualSince = fmt.Sprintf(GetPostsTreeSincePart, ">")
 		}
 		query := GetPostsTreePart1 + actualSince + GetPostsTreePart2
 		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
@@ -367,10 +318,8 @@ func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (
 		return nil, DBError
 	}
 	defer rows.Close()
-	i := 0
 	posts := make(models.Posts, 0)
 	for rows.Next() {
-		i++
 		post := new(models.Post)
 		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
@@ -378,9 +327,6 @@ func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (
 			return models.Posts{}, DBError
 		}
 		posts = append(posts, post)
-	}
-	if i == 0 {
-		return nil, EmptyResult // dunno if need
 	}
 	return posts, OK
 }
@@ -393,28 +339,27 @@ func (db *DB) GetPostsParentTree(id string, limit string, since string, desc str
 	}
 	rows := &sql.Rows{}
 	err := errors.New("")
+	query := ""
 	if since != "" {
 		actualSince := ""
 		if ifDesc {
-			actualSince = fmt.Sprintf(GetPostsSincePart, "<=")
+			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, "<=", "desc")
 		} else {
-			actualSince = fmt.Sprintf(GetPostsSincePart, "=>")
+			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, ">=", "asc")
 		}
-		query := GetPostsParentTreePart1 + actualSince + GetPostsParentTreePart2
-		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
+		query = GetPostsParentTreePart1 + actualSince + GetPostsParentTreePart2
+		rows, err = db.db.Query(query, id, limit, since)
 	} else {
-		query := GetPostsParentTreePart1 + GetPostsParentTreePart2
-		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit)
+		query = GetPostsParentTreePart1 + GetPostsParentTreePart2Alt
+		query = fmt.Sprintf(query, strDesc, strDesc)
+		rows, err = db.db.Query(query, id, limit)
 	}
-	//rows, err := db.db.Query(fmt.Sprintf(getPostsParentTree, strDesc), id, limit, since)
 	if err != nil {
 		return nil, DBError
 	}
 	defer rows.Close()
-	i := 0
 	posts := make(models.Posts, 0)
 	for rows.Next() {
-		i++
 		post := new(models.Post)
 		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
@@ -422,9 +367,6 @@ func (db *DB) GetPostsParentTree(id string, limit string, since string, desc str
 			return models.Posts{}, DBError
 		}
 		posts = append(posts, post)
-	}
-	if i == 0 {
-		return nil, EmptyResult // dunno if need
 	}
 	return posts, OK
 }
