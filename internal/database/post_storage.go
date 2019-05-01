@@ -23,11 +23,9 @@ var (
 	GetPostsTreePart2 = 	"ORDER BY path %s LIMIT $2"
 	GetPostsTreeSincePart = "AND path %s (SELECT path FROM posts WHERE id = $3) "
 	GetPostsParentTreePart1 = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
-	//GetPostsParentTreePart2 = "ORDER BY path[1] %s, path "
 	GetPostsParentTreePart2 = "ORDER BY path "
 	GetPostsParentTreePart2Alt = "AND path[1] IN (SELECT id FROM posts WHERE thread=$1 AND parent=0 ORDER BY id %s LIMIT $2) ORDER BY path[1] %s, path"
-	GetPostsParentTreeSincePart = "AND path[1] IN (SELECT id FROM posts WHERE parent=0 AND id %s $3 ORDER BY id %s LIMIT $2) "
-	// LIMIT $2
+	GetPostsParentTreeSincePart = "AND path[1] IN (SELECT id FROM posts WHERE parent=0 AND id %s (SELECT path[1] FROM posts WHERE id = $3) ORDER BY id %s LIMIT $2) "
 )
 
 func (db *DB) GetPost(postId string) (models.Post, int) {
@@ -242,7 +240,14 @@ func (db *DB) GetPostsById(id string, limit string, since string,
 	sort string, desc string) (models.Posts, int) {
 	log.Println("get posts by slug")
 	log.Printf("Params: %s, %s, %s,%s, %s", id, limit, since, sort, desc)
-
+	ifThreadExists := false
+	err := db.db.QueryRow("SELECT EXISTS(SELECT 1 FROM threads WHERE id = $1)", id).Scan(&ifThreadExists)
+	if err != nil {
+		return nil, DBError
+	}
+	if !ifThreadExists {
+		return models.Posts{}, EmptyResult
+	}
 	switch sort {
 	case "flat":
 		return db.GetPostsFlat(id, limit, since, desc)
@@ -343,9 +348,9 @@ func (db *DB) GetPostsParentTree(id string, limit string, since string, desc str
 	if since != "" {
 		actualSince := ""
 		if ifDesc {
-			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, "<=", "desc")
+			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, "<", "desc")
 		} else {
-			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, ">=", "asc")
+			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, ">", "asc")
 		}
 		query = GetPostsParentTreePart1 + actualSince + GetPostsParentTreePart2
 		rows, err = db.db.Query(query, id, limit, since)
