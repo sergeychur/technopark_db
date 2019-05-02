@@ -1,9 +1,9 @@
 package database
 
 import (
-	"database/sql"
-	"fmt"
 	_ "github.com/lib/pq"
+	"gopkg.in/jackc/pgx.v2"
+	"time"
 )
 
 const (
@@ -13,17 +13,18 @@ const (
 	Conflict    = 3
 )
 
+
 type DB struct {
-	db           *sql.DB
+	db           *pgx.ConnPool
 	user         string
 	password     string
 	databaseName string
 	host         string
-	port         string
+	port         uint16
 }
 
 func NewDB(user string, password string, dataBaseName string,
-	host string, port string) *DB {
+	host string, port uint16) *DB {
 	db := new(DB)
 	db.user = user
 	db.databaseName = dataBaseName
@@ -34,26 +35,31 @@ func NewDB(user string, password string, dataBaseName string,
 }
 
 func (db *DB) Start() error {
-	psqlInfo := fmt.Sprintf("host=%s port=%s user=%s "+
-		"password=%s dbname=%s sslmode=disable",
-		db.host, db.port, db.user, db.password, db.databaseName)
-	dataBase, err := sql.Open("postgres", psqlInfo)
+	conf := pgx.ConnConfig{
+		Host:     db.host,
+		Port:     db.port,
+		User:     db.user,
+		Password: db.password,
+		Database: db.databaseName,
+	}
+	poolConf := pgx.ConnPoolConfig{
+		ConnConfig:     conf,
+		MaxConnections: 80,
+		AcquireTimeout: time.Duration(7 * time.Second),
+	}
+	dataBase, err := pgx.NewConnPool(poolConf)
 	if err != nil {
 		return err
 	}
 	db.db = dataBase
-	err = db.db.Ping()
-	if err != nil {
-		db.Close()
-		return err
-	}
 	return nil
 }
 
 func (db *DB) Close() {
-	_ = db.db.Close()
+	db.db.Close()
 }
 
-func (db *DB) StartTransaction() (*sql.Tx, error) {
+func (db *DB) StartTransaction() (*pgx.Tx, error) {
 	return db.db.Begin()
 }
+

@@ -1,24 +1,17 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/sergeychur/technopark_db/internal/models"
+	"gopkg.in/jackc/pgx.v2"
 	"log"
 )
 
 const (
-	getForumUsersPart1 = "SELECT u.nick_name, u.about, u.email, u.full_name " +
-		"FROM users u JOIN posts p ON u.nick_name = p.author " +
-		"WHERE p.forum = $1 "
+	getForumUsers = "SELECT u.nick_name, u.about, u.email, u.full_name " +
+		"FROM forum_to_users f_u JOIN users u ON (u.nick_name = f_u.user_nick) WHERE f_u.forum = $1 "
 	getForumUsersSincePart = "AND u.nick_name %s $2 "
-	getForumUsersPart2 = "UNION " +
-		"SELECT u.nick_name, u.about, u.email, u.full_name " +
-		"FROM users u JOIN threads t ON u.nick_name = t.author " +
-		"WHERE t.forum = $1 "
-		//"AND u.nick_name >= $2 " +
-	getForumUsersFinPart = `ORDER BY nick_name  %s LIMIT ` // change on correct sql from lections
-
+	getForumUsersFinPart   = `ORDER BY u.nick_name  %s LIMIT `
 	getUserByNick         = "SELECT * FROM users WHERE nick_name = $1"
 	getUsersByEmailOrNick = "SELECT * FROM users WHERE nick_name = $1 OR email = $2"
 	createUser            = "INSERT INTO users (nick_name, email, full_name, about) VALUES($1, $2, $3, $4)"
@@ -28,12 +21,13 @@ const (
 
 func (db *DB) GetForumUsers(forumId string, limit string,
 	since string, desc string) (models.Users, int) {
-	log.Println("get forum users")
 	query := ""
-	rows := &sql.Rows{}
-	//err := errors.New("")
+	rows := &pgx.Rows{}
 	ifExist := false
-	err := db.db.QueryRow("SELECT EXISTS(SELECT 1 FROM forum where slug = $1)", forumId).Scan(&ifExist)
+	err := db.db.QueryRow("SELECT TRUE  FROM forum where slug = $1", forumId).Scan(&ifExist)
+	if err == pgx.ErrNoRows {
+		return nil, EmptyResult
+	}
 	if err != nil {
 		return nil, DBError
 	}
@@ -51,10 +45,10 @@ func (db *DB) GetForumUsers(forumId string, limit string,
 		} else {
 			actualSince = fmt.Sprintf(getForumUsersSincePart, "<")
 		}
-		query = getForumUsersPart1 + actualSince + getForumUsersPart2 + actualSince + getForumUsersFinPart + "$3"
+		query = getForumUsers + actualSince + getForumUsersFinPart + "$3"
 		rows, err = db.db.Query(fmt.Sprintf(query, desc), forumId, since, limit)
 	} else {
-		query = getForumUsersPart1 + getForumUsersPart2 + getForumUsersFinPart + "$2"
+		query = getForumUsers + getForumUsersFinPart + "$2"
 		rows, err = db.db.Query(fmt.Sprintf(query, desc), forumId, limit)
 	}
 	if err != nil {
@@ -63,9 +57,7 @@ func (db *DB) GetForumUsers(forumId string, limit string,
 	}
 	defer rows.Close()
 	users := models.Users{}
-	//i := 0
 	for rows.Next() {
-		//i++
 		user := new(models.User)
 		err := rows.Scan(&user.Nickname, &user.About, &user.Email, &user.Fullname)
 		if err != nil {
@@ -74,9 +66,6 @@ func (db *DB) GetForumUsers(forumId string, limit string,
 		}
 		users = append(users, user)
 	}
-	/*if i == 0 {
-		return models.Users{}, EmptyResult
-	}*/
 	return users, OK
 }
 
@@ -104,7 +93,7 @@ func (db *DB) CreateUser(user models.User) (models.Users, int) {
 		}
 		users = append(users, user)
 	}
-	_ = rows.Close()
+	rows.Close()
 	if i != 0 {
 		return users, Conflict
 	}
@@ -123,7 +112,7 @@ func (db *DB) GetUser(userNick string) (models.User, int) {
 	row := db.db.QueryRow(getUserByNick, userNick)
 	err := row.Scan(&user.Nickname, &user.About, &user.Email,
 		&user.Fullname)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return user, EmptyResult
 	}
 	if err != nil {
@@ -149,7 +138,7 @@ func (db *DB) UpdateUser(userNick string, user models.UserUpdate) (models.User, 
 	if err != nil {
 		return models.User{}, DBError
 	}
-	num, err := res.RowsAffected()
+	num := res.RowsAffected()
 	if num != 1 {
 		return models.User{}, Conflict
 	}

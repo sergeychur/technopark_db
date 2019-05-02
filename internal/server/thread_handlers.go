@@ -88,9 +88,6 @@ func (serv *Server) GetThreadMessages(w http.ResponseWriter, r *http.Request) {
 	sinces, ok := params["since"]
 	since := ""
 	if ok {
-		/*errText := models.Error{Message: "No since"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
-		return*/
 		since = sinces[0]
 	}
 	sorts, ok := params["sort"]
@@ -103,9 +100,6 @@ func (serv *Server) GetThreadMessages(w http.ResponseWriter, r *http.Request) {
 	descs, ok := params["desc"]
 	desc := "false"
 	if ok {
-		/*errText := models.Error{Message: "No desc"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
-		return*/
 		desc = descs[0]
 	}
 	posts := models.Posts{}

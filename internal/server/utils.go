@@ -6,6 +6,7 @@ import (
 	"github.com/sergeychur/technopark_db/internal/database"
 	"github.com/sergeychur/technopark_db/internal/models"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"regexp"
 )
@@ -19,15 +20,18 @@ const (
 var (
 	slugRegExp *regexp.Regexp = regexp.MustCompile("^(\\d|\\w|-|_)*(\\w|-|_)(\\d|\\w|-|_)*$")
 	idRegexp   *regexp.Regexp = regexp.MustCompile("^[0-9]+$")
-	noSince = fmt.Errorf("no since")
-	noLimit = fmt.Errorf("no limit")
+	noSince                   = fmt.Errorf("no since")
+	noLimit                   = fmt.Errorf("no limit")
 )
 
 func WriteToResponse(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(status)
 	response, _ := json.Marshal(v)
-	w.Write(response)
+	_, err := w.Write(response)
+	if err != nil {
+		log.Println("heh, unable to write to response, starve")
+	}
 }
 
 func ReadFromBody(r *http.Request, w http.ResponseWriter, v interface{}) error {
@@ -107,8 +111,6 @@ func ParseParams(w http.ResponseWriter, r *http.Request,
 	params := r.URL.Query()
 	limits, ok := params["limit"]
 	if !ok {
-		//errText := models.Error{Message: "No limit"}
-		//WriteToResponse(w, http.StatusNotFound, errText)
 		return noLimit
 	}
 	*limit = limits[0]
@@ -117,7 +119,6 @@ func ParseParams(w http.ResponseWriter, r *http.Request,
 		WriteToResponse(w, http.StatusNotFound, errText)
 		return fmt.Errorf(errText.Message)
 	}
-	// TODO:(Me) parse date for correct
 
 	descs, ok := params["desc"]
 	if !ok {

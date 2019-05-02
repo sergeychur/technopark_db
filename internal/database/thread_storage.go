@@ -1,12 +1,13 @@
 package database
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/sergeychur/technopark_db/internal/models"
+	"gopkg.in/jackc/pgx.v2"
 	"log"
 	"strconv"
+	"time"
 )
 
 const (
@@ -14,9 +15,9 @@ const (
 	createThreadWithTime = "INSERT INTO threads (slug, created, title, author, forum, message) VALUES($1, $2, $3, $4, $5, $6) RETURNING id"
 	getThreadBySlug      = "SELECT * FROM threads WHERE slug = $1"
 	getThreadById        = "SELECT * FROM threads WHERE id = $1"
-	getForumThreadsPart1      = "SELECT * FROM threads WHERE forum = $1 " // mb change for sql from lections
-	sincePart = "AND created %s $2 "
-	getForumThreadsPart2      = "ORDER BY created %s LIMIT " // mb change for sql from lections
+	getForumThreadsPart1 = "SELECT * FROM threads WHERE forum = $1 "
+	sincePart            = "AND created %s $2 "
+	getForumThreadsPart2 = "ORDER BY created %s LIMIT "
 	updateThreadBySlug   = "UPDATE threads SET message=CASE $1 WHEN '' THEN message ELSE $1 END, title=CASE $2 WHEN '' THEN title ELSE $2 END WHERE slug=$3"
 	updateThreadById     = "UPDATE threads SET message=CASE $1 WHEN '' THEN message ELSE $1 END, title=CASE $2 WHEN '' THEN title ELSE $2 END WHERE id=$3"
 	voteThread           = "INSERT INTO votes(thread, author, is_like) VALUES($1, $2, $3) ON CONFLICT (thread, author) " +
@@ -40,7 +41,6 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 		log.Println(err.Error())
 		return models.Thread{}, DBError
 	}
-	//ifExistsForum, err := IsForumExist(tx, forumId)
 	forumId, stat := GetForumId(tx, forumId)
 	if stat == DBError {
 		return models.Thread{}, stat
@@ -66,21 +66,20 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 	}
 	insertedId := -1
 	if thread.Created != "" {
-		row := tx.QueryRow(createThreadWithTime, thread.Slug, thread.Created,
+		timeStamp, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", thread.Created)
+		row := tx.QueryRow(createThreadWithTime, thread.Slug, timeStamp,
 			thread.Title, thread.Author, forumId, thread.Message)
-		err := row.Scan(&insertedId)
-		if err != nil{
+		err = row.Scan(&insertedId)
+		if err != nil {
 			return models.Thread{}, DBError
 		}
 	} else {
 		row := tx.QueryRow(createThread, thread.Slug, thread.Title, thread.Author, forumId, thread.Message)
 		err := row.Scan(&insertedId)
-		if err != nil{
+		if err != nil {
 			return models.Thread{}, DBError
 		}
 	}
-
-	// TODO(Me): Deal with UNIQUE on thread, some shit now
 	if err != nil {
 		log.Println(err)
 		return models.Thread{}, Conflict
@@ -98,9 +97,11 @@ func (db *DB) CreateThread(thread models.Thread, forumId string) (models.Thread,
 
 func (db *DB) GetForumThreads(forumId string, limit string,
 	since string, desc string) (models.Threads, int) {
-	log.Println("get forum threads")
 	ifExist := false
-	err := db.db.QueryRow("SELECT EXISTS(SELECT 1 FROM forum where slug = $1)", forumId).Scan(&ifExist)
+	err := db.db.QueryRow("SELECT TRUE FROM forum where slug = $1", forumId).Scan(&ifExist)
+	if err == pgx.ErrNoRows {
+		return nil, EmptyResult
+	}
 	if err != nil {
 		return nil, DBError
 	}
@@ -108,7 +109,7 @@ func (db *DB) GetForumThreads(forumId string, limit string,
 		return nil, EmptyResult
 	}
 	query := ""
-	rows := &sql.Rows{}
+	rows := &pgx.Rows{}
 	err = errors.New("")
 	actualSince := ""
 	if since != "" {
@@ -132,11 +133,13 @@ func (db *DB) GetForumThreads(forumId string, limit string,
 	for rows.Next() {
 		i++
 		thread := new(models.Thread)
-		err := rows.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum,
+		timeStamp := time.Time{}
+		err := rows.Scan(&thread.ID, &thread.Author, &timeStamp, &thread.Forum,
 			&thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
 		if err != nil {
 			return models.Threads{}, DBError
 		}
+		thread.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 		threads = append(threads, thread)
 	}
 	if i == 0 {
@@ -146,32 +149,34 @@ func (db *DB) GetForumThreads(forumId string, limit string,
 }
 
 func (db *DB) GetThreadBySlug(slug string) (models.Thread, int) {
-	log.Println("get thread slug")
 	row := db.db.QueryRow(getThreadBySlug, slug)
 	thread := models.Thread{}
-	err := row.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum,
+	timeStamp := time.Time{}
+	err := row.Scan(&thread.ID, &thread.Author, &timeStamp, &thread.Forum,
 		&thread.Message, &thread.Slug, &thread.Title, &thread.Votes)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return thread, EmptyResult
 	}
 	if err != nil {
 		log.Println(err.Error())
 		return thread, DBError
 	}
+	thread.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 	return thread, OK
 }
 
 func (db *DB) GetThreadById(id string) (models.Thread, int) {
-	log.Println("get thread id")
 	row := db.db.QueryRow(getThreadById, id)
 	thread := models.Thread{}
-	slug := sql.NullString{}
-	err := row.Scan(&thread.ID, &thread.Author, &thread.Created, &thread.Forum,
+	slug := pgx.NullString{}
+	timeStamp := time.Time{}
+	err := row.Scan(&thread.ID, &thread.Author, &timeStamp, &thread.Forum,
 		&thread.Message, &slug, &thread.Title, &thread.Votes)
+	thread.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 	if slug.Valid {
 		thread.Slug = slug.String
 	}
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return thread, EmptyResult
 	}
 	if err != nil {

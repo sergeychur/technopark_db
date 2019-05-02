@@ -3,12 +3,12 @@ package server
 import (
 	"fmt"
 	"github.com/go-chi/chi"
-	"github.com/go-chi/chi/middleware"
 	"github.com/sergeychur/technopark_db/config"
 	"github.com/sergeychur/technopark_db/internal/database"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 type Server struct {
@@ -20,8 +20,8 @@ type Server struct {
 func NewServer(pathToConfig string) (*Server, error) {
 	server := new(Server)
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	//r.Use(middleware.Logger)
+	//r.Use(middleware.Recoverer)
 	slugPattern := "^(\\d|\\w|-|_)*(\\w|-|_)(\\d|\\w|-|_)*$"
 	idPattern := "^[0-9]+$"
 	nickPattern := "^[A-Za-z0-9_\\.-]+$"
@@ -57,8 +57,12 @@ func NewServer(pathToConfig string) (*Server, error) {
 		return nil, err
 	}
 	server.config = newConfig
+	dbPort, err := strconv.Atoi(server.config.DBPort)
+	if err != nil {
+		return nil, err
+	}
 	db := database.NewDB(server.config.DBUser, server.config.DBPass,
-		server.config.DBName, server.config.DBHost, server.config.DBPort)
+		server.config.DBName, server.config.DBHost, uint16(dbPort))
 	server.db = db
 	return server, nil
 }

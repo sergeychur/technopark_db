@@ -13,9 +13,6 @@ func (serv *Server) GetPostInfo(w http.ResponseWriter, r *http.Request) {
 	relatedStr, ok := params["related"]
 	related := make([]string, 0)
 	if ok {
-		/*errText := models.Error{Message: "No related"}
-		WriteToResponse(w, http.StatusBadRequest, errText)
-		return*/
 		related = strings.Split(relatedStr[0], ",")
 	}
 	post := models.PostFull{}

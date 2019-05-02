@@ -1,22 +1,20 @@
 package database
 
 import (
-	"database/sql"
 	"github.com/sergeychur/technopark_db/internal/models"
+	"gopkg.in/jackc/pgx.v2"
 	"log"
 )
 
 const (
-	//GetForum    = "SELECT * FROM forum where slug = $1"
-	GetForum = "SELECT (SELECT count(*) FROM posts WHERE forum = $1) as posts, " +
-		"slug, (SELECT count(*) FROM threads WHERE forum = $1) as threads, " +
+	GetForum = "SELECT posts_count, " +
+		"slug, threads_count, " +
 		"title, " +
 		"user_nick FROM forum where slug = $1"
 	CreateForum = "INSERT INTO forum (slug, title, user_nick) VALUES($1, $2, $3)"
 )
 
 func (db *DB) CreateForum(forum models.Forum) (models.Forum, int) {
-	log.Println("create forum")
 	tx, err := db.StartTransaction()
 	if err != nil {
 		return models.Forum{}, DBError
@@ -66,11 +64,10 @@ func (db *DB) CreateForum(forum models.Forum) (models.Forum, int) {
 }
 
 func (db *DB) GetForum(ForumId string) (models.Forum, int) {
-	log.Println("get forum")
 	row := db.db.QueryRow(GetForum, ForumId)
 	forum := models.Forum{}
 	err := row.Scan(&forum.Posts, &forum.Slug, &forum.Threads, &forum.Title, &forum.User)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return forum, EmptyResult
 	}
 	if err != nil {
@@ -79,5 +76,3 @@ func (db *DB) GetForum(ForumId string) (models.Forum, int) {
 	}
 	return forum, OK
 }
-
-

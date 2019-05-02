@@ -32,7 +32,6 @@ func (db *DB) ClearDB() error {
 }
 
 func (db *DB) GetDBInfo() (models.Status, int) {
-	log.Println("get status")
 	row := db.db.QueryRow(GetDBInfo)
 	status := models.Status{}
 	err := row.Scan(&status.Forum, &status.Post, &status.Thread, &status.User)

@@ -1,42 +1,44 @@
 package database
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/sergeychur/technopark_db/internal/models"
-	"log"
+	"gopkg.in/jackc/pgx.v2"
 	"strconv"
 	"time"
 )
 
 var (
-	GetPost            = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
-	UpdatePost         = "UPDATE posts SET message=CASE WHEN $1=''THEN message ELSE $1 END, " +
+	GetPost    = "SELECT id, author, created, forum, message, parent, thread, is_edited from posts where id = $1"
+	UpdatePost = "UPDATE posts SET message=CASE WHEN $1=''THEN message ELSE $1 END, " +
 		"is_edited=CASE WHEN $1='' OR $1=message THEN is_edited ELSE true END WHERE id=$2"
 	InsertPost = "INSERT INTO POSTS (message, forum, thread, author, parent, created) VALUES($1, $2, $3, $4, $5, $6) " +
 		"RETURNING id, author, created, forum, message, parent, thread, is_edited"
-	GetPostsFlatPart1       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
+	GetPostsFlatPart1 = "SELECT p.id, p.author, p.created, p.forum, p.message, p.parent, p.thread, p.is_edited FROM posts p JOIN " +
+		"(SELECT id FROM posts WHERE thread = $1 %s ORDER BY id %s LIMIT $2) AS sq ON sq.id = p.id "
 	GetPostsFlatSincePart = "AND id %s $3 "
-	GetPostsFlatPart2 = "ORDER BY id %s LIMIT $2"
-	GetPostsTreePart1       = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
-	GetPostsTreePart2 = 	"ORDER BY path %s LIMIT $2"
+	GetPostsFlatPart2     = "ORDER BY id %s "
+	GetPostsTree          = "SELECT p.id, p.author, p.created, p.forum, p.message, p.parent, p.thread, p.is_edited FROM posts p " +
+		"JOIN (SELECT id FROM posts WHERE thread = $1 %s ORDER BY path %s LIMIT $2) AS sq ON sq.id = p.id ORDER BY path %s "
 	GetPostsTreeSincePart = "AND path %s (SELECT path FROM posts WHERE id = $3) "
-	GetPostsParentTreePart1 = "SELECT id, author, created, forum, message, parent, thread, is_edited FROM posts WHERE thread = $1 "
-	GetPostsParentTreePart2 = "ORDER BY path "
-	GetPostsParentTreePart2Alt = "AND path[1] IN (SELECT id FROM posts WHERE thread=$1 AND parent=0 ORDER BY id %s LIMIT $2) ORDER BY path[1] %s, path"
-	GetPostsParentTreeSincePart = "AND path[1] IN (SELECT id FROM posts WHERE parent=0 AND id %s (SELECT path[1] FROM posts WHERE id = $3) ORDER BY id %s LIMIT $2) "
+	GetPostsParentTree    = "SELECT p.id, p.author, p.created, p.forum, p.message, p.parent, p.thread, p.is_edited FROM posts p JOIN ( " +
+		"SELECT id FROM posts WHERE parent = 0 AND thread = $1 %s ORDER BY id %s LIMIT $2) AS sq ON sq.id=p.path[1] "
+	ParentTreeSincePart        = "AND id %s (SELECT path[1] FROM posts WHERE id=$3)"
+	GetPostsParentTreePart2Alt = "ORDER BY path[1] %s, path "
 )
 
 func (db *DB) GetPost(postId string) (models.Post, int) {
 	post := models.Post{}
 	row := db.db.QueryRow(GetPost, postId)
-	err := row.Scan(&post.ID, &post.Author, &post.Created,
+	timeStamp := time.Time{}
+	err := row.Scan(&post.ID, &post.Author, &timeStamp,
 		&post.Forum, &post.Message, &post.Parent,
 		&post.Thread, &post.IsEdited)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return post, EmptyResult
 	}
+	post.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 	if err != nil {
 		return post, DBError
 	}
@@ -44,7 +46,6 @@ func (db *DB) GetPost(postId string) (models.Post, int) {
 }
 
 func (db *DB) GetPostInfo(postId string, related []string) (models.PostFull, int) {
-	log.Println("get post info")
 	subqueries := map[string]bool{
 		"user":   false,
 		"forum":  false,
@@ -95,7 +96,6 @@ func (db *DB) GetPostInfo(postId string, related []string) (models.PostFull, int
 }
 
 func (db *DB) UpdatePost(postId string, update models.PostUpdate) (models.Post, int) {
-	log.Println("update post info")
 	tx, err := db.StartTransaction()
 	defer tx.Rollback()
 	if err != nil {
@@ -119,7 +119,6 @@ func (db *DB) UpdatePost(postId string, update models.PostUpdate) (models.Post, 
 }
 
 func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, int) {
-	log.Println("create posts by slug")
 	tx, err := db.StartTransaction()
 	if err != nil {
 		return models.Posts{}, DBError
@@ -132,11 +131,16 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 	postsToReturn := make(models.Posts, 0)
 	currentTime := time.Now()
 	timeString := currentTime.Format(time.RFC3339)
+	authors := make([]string, 0)
+	_, err = tx.Prepare("insert_posts", InsertPost)
 	for _, post := range posts {
 		ifUserExist, err := IsUserExist(tx, post.Author)
 		if post.Parent != 0 {
 			ifParentExist := false
-			err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM POSTS WHERE id = $1 AND thread = $2)", post.Parent, threadId).Scan(&ifParentExist)
+			err := tx.QueryRow("SELECT true FROM POSTS WHERE id = $1 AND thread = $2", post.Parent, threadId).Scan(&ifParentExist)
+			if err == pgx.ErrNoRows {
+				return nil, Conflict
+			}
 			if err != nil {
 				return nil, DBError
 			}
@@ -149,23 +153,43 @@ func (db *DB) CreatePostsBySlug(slug string, posts models.Posts) (models.Posts, 
 			return nil, EmptyResult
 		}
 		curPost := models.Post{}
-		err = tx.QueryRow(InsertPost, post.Message, forumId, threadId, post.Author, post.Parent,
-			timeString).Scan(&curPost.ID, &curPost.Author, &curPost.Created,
+		timeStamp := time.Time{}
+		err = tx.QueryRow("insert_posts", post.Message, forumId, threadId, post.Author, post.Parent,
+			timeString).Scan(&curPost.ID, &curPost.Author, &timeStamp,
 			&curPost.Forum, &curPost.Message, &curPost.Parent, &curPost.Thread, &curPost.IsEdited)
 		if err != nil {
 			return nil, DBError
 		}
+		curPost.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 		postsToReturn = append(postsToReturn, &curPost)
+		authors = append(authors, curPost.Author)
+	}
+	postsLen := len(postsToReturn)
+	if postsLen > 0 {
+		_, err = tx.Exec("UPDATE forum SET posts_count = posts_count + $1 WHERE slug = $2", len(postsToReturn), postsToReturn[0].Forum)
+		if err != nil {
+			return nil, DBError
+		}
+		_, err := tx.Prepare("insert_authors", "INSERT INTO forum_to_users(forum, user_nick) VALUES ($1, $2) ON CONFLICT DO NOTHING;")
+		if err != nil {
+			return nil, DBError
+		}
+		for _, author := range authors {
+			_, err = tx.Exec("insert_authors", forumId, author)
+			if err != nil {
+				return nil, DBError
+			}
+		}
 	}
 	err = tx.Commit()
 	if err != nil {
 		return nil, DBError
 	}
+
 	return postsToReturn, OK
 }
 
 func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int) {
-	log.Println("create posts by slug")
 	tx, err := db.StartTransaction()
 	if err != nil {
 		return models.Posts{}, DBError
@@ -178,6 +202,8 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 	postsToReturn := make(models.Posts, 0)
 	currentTime := time.Now()
 	timeString := currentTime.Format(time.RFC3339)
+	authors := make([]string, 0)
+	_, err = tx.Prepare("insert_posts", InsertPost)
 	for _, post := range posts {
 		ifUserExist, err := IsUserExist(tx, post.Author)
 		if err != nil {
@@ -185,7 +211,10 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 		}
 		if post.Parent != 0 {
 			ifParentExist := false
-			err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM POSTS WHERE id = $1 AND thread = $2)", post.Parent, id).Scan(&ifParentExist)
+			err := tx.QueryRow("SELECT true FROM POSTS WHERE id = $1 AND thread = $2", post.Parent, id).Scan(&ifParentExist)
+			if err == pgx.ErrNoRows {
+				return nil, Conflict
+			}
 			if err != nil {
 				return nil, DBError
 			}
@@ -197,13 +226,33 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 			return nil, EmptyResult
 		}
 		curPost := models.Post{}
-		err = tx.QueryRow(InsertPost, post.Message, forumId, id, post.Author, post.Parent,
-			timeString).Scan(&curPost.ID, &curPost.Author, &curPost.Created,
+		timeStamp := time.Time{}
+		err = tx.QueryRow("insert_posts", post.Message, forumId, id, post.Author, post.Parent,
+			timeString).Scan(&curPost.ID, &curPost.Author, &timeStamp,
 			&curPost.Forum, &curPost.Message, &curPost.Parent, &curPost.Thread, &curPost.IsEdited)
 		if err != nil {
 			return nil, DBError
 		}
+		curPost.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 		postsToReturn = append(postsToReturn, &curPost)
+		authors = append(authors, curPost.Author)
+	}
+	postsLen := len(postsToReturn)
+	if postsLen > 0 {
+		_, err = tx.Exec("UPDATE forum SET posts_count = posts_count + $1 WHERE slug = $2", len(postsToReturn), postsToReturn[0].Forum)
+		if err != nil {
+			return nil, DBError
+		}
+		_, err := tx.Prepare("insert_authors", "INSERT INTO forum_to_users(forum, user_nick) VALUES ($1, $2) ON CONFLICT DO NOTHING;")
+		if err != nil {
+			return nil, DBError
+		}
+		for _, author := range authors {
+			_, err = tx.Exec("insert_authors", forumId, author)
+			if err != nil {
+				return nil, DBError
+			}
+		}
 	}
 	err = tx.Commit()
 	if err != nil {
@@ -214,12 +263,10 @@ func (db *DB) CreatePostsById(id string, posts models.Posts) (models.Posts, int)
 
 func (db *DB) GetPostsBySlug(slug string, limit string, since string,
 	sort string, desc string) (models.Posts, int) {
-	log.Println("get posts by slug")
-	log.Printf("Params: %s, %s, %s,%s, %s", slug, limit, since, sort, desc)
-	id := ""
+	id := 0
 	row := db.db.QueryRow(getThreadIdBySlug, slug)
 	err := row.Scan(&id)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, EmptyResult
 	}
 	if err != nil {
@@ -227,21 +274,22 @@ func (db *DB) GetPostsBySlug(slug string, limit string, since string,
 	}
 	switch sort {
 	case "flat":
-		return db.GetPostsFlat(id, limit, since, desc)
+		return db.GetPostsFlat(strconv.Itoa(id), limit, since, desc)
 	case "tree":
-		return db.GetPostsTree(id, limit, since, desc)
+		return db.GetPostsTree(strconv.Itoa(id), limit, since, desc)
 	case "parent_tree":
-		return db.GetPostsParentTree(id, limit, since, desc)
+		return db.GetPostsParentTree(strconv.Itoa(id), limit, since, desc)
 	}
 	return models.Posts{}, OK
 }
 
 func (db *DB) GetPostsById(id string, limit string, since string,
 	sort string, desc string) (models.Posts, int) {
-	log.Println("get posts by slug")
-	log.Printf("Params: %s, %s, %s,%s, %s", id, limit, since, sort, desc)
 	ifThreadExists := false
-	err := db.db.QueryRow("SELECT EXISTS(SELECT 1 FROM threads WHERE id = $1)", id).Scan(&ifThreadExists)
+	err := db.db.QueryRow("SELECT true FROM threads WHERE id = $1", id).Scan(&ifThreadExists)
+	if err == pgx.ErrNoRows {
+		return models.Posts{}, EmptyResult
+	}
 	if err != nil {
 		return nil, DBError
 	}
@@ -260,12 +308,12 @@ func (db *DB) GetPostsById(id string, limit string, since string,
 }
 
 func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (models.Posts, int) {
-	ifDesc, _ := strconv.ParseBool(desc) // mb check error
+	ifDesc, _ := strconv.ParseBool(desc)
 	strDesc := "ASC"
 	if ifDesc {
 		strDesc = "DESC"
 	}
-	rows := &sql.Rows{}
+	rows := &pgx.Rows{}
 	err := errors.New("")
 	if since != "" {
 		actualSince := ""
@@ -274,10 +322,10 @@ func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (
 		} else {
 			actualSince = fmt.Sprintf(GetPostsFlatSincePart, ">")
 		}
-		query := GetPostsFlatPart1 + actualSince + GetPostsFlatPart2
+		query := fmt.Sprintf(GetPostsFlatPart1, actualSince, strDesc) + GetPostsFlatPart2
 		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
 	} else {
-		query := GetPostsFlatPart1 + GetPostsFlatPart2
+		query := fmt.Sprintf(GetPostsFlatPart1, "", strDesc) + GetPostsFlatPart2
 		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit)
 	}
 	if err != nil {
@@ -287,11 +335,13 @@ func (db *DB) GetPostsFlat(id string, limit string, since string, desc string) (
 	posts := make(models.Posts, 0)
 	for rows.Next() {
 		post := new(models.Post)
-		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
+		timeStamp := time.Time{}
+		err := rows.Scan(&post.ID, &post.Author, &timeStamp, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
 		if err != nil {
 			return models.Posts{}, DBError
 		}
+		post.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 		posts = append(posts, post)
 	}
 	return posts, OK
@@ -303,8 +353,9 @@ func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (
 	if ifDesc {
 		strDesc = "DESC"
 	}
-	rows := &sql.Rows{}
+	rows := &pgx.Rows{}
 	err := errors.New("")
+	query := ""
 	if since != "" {
 		actualSince := ""
 		if ifDesc {
@@ -312,51 +363,10 @@ func (db *DB) GetPostsTree(id string, limit string, since string, desc string) (
 		} else {
 			actualSince = fmt.Sprintf(GetPostsTreeSincePart, ">")
 		}
-		query := GetPostsTreePart1 + actualSince + GetPostsTreePart2
-		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit, since)
-	} else {
-		query := GetPostsTreePart1 + GetPostsTreePart2
-		rows, err = db.db.Query(fmt.Sprintf(query, strDesc), id, limit)
-	}
-	//rows, err := db.db.Query(fmt.Sprintf(getPostsTree, strDesc), id, limit, since)
-	if err != nil {
-		return nil, DBError
-	}
-	defer rows.Close()
-	posts := make(models.Posts, 0)
-	for rows.Next() {
-		post := new(models.Post)
-		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
-			&post.Parent, &post.Thread, &post.IsEdited)
-		if err != nil {
-			return models.Posts{}, DBError
-		}
-		posts = append(posts, post)
-	}
-	return posts, OK
-}
-
-func (db *DB) GetPostsParentTree(id string, limit string, since string, desc string) (models.Posts, int) {
-	ifDesc, _ := strconv.ParseBool(desc) // mb check error
-	strDesc := "ASC"
-	if ifDesc {
-		strDesc = "DESC"
-	}
-	rows := &sql.Rows{}
-	err := errors.New("")
-	query := ""
-	if since != "" {
-		actualSince := ""
-		if ifDesc {
-			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, "<", "desc")
-		} else {
-			actualSince = fmt.Sprintf(GetPostsParentTreeSincePart, ">", "asc")
-		}
-		query = GetPostsParentTreePart1 + actualSince + GetPostsParentTreePart2
+		query = fmt.Sprintf(GetPostsTree, actualSince, strDesc, strDesc)
 		rows, err = db.db.Query(query, id, limit, since)
 	} else {
-		query = GetPostsParentTreePart1 + GetPostsParentTreePart2Alt
-		query = fmt.Sprintf(query, strDesc, strDesc)
+		query = fmt.Sprintf(GetPostsTree, "", strDesc, strDesc)
 		rows, err = db.db.Query(query, id, limit)
 	}
 	if err != nil {
@@ -366,11 +376,54 @@ func (db *DB) GetPostsParentTree(id string, limit string, since string, desc str
 	posts := make(models.Posts, 0)
 	for rows.Next() {
 		post := new(models.Post)
-		err := rows.Scan(&post.ID, &post.Author, &post.Created, &post.Forum, &post.Message,
+		timeStamp := time.Time{}
+		err := rows.Scan(&post.ID, &post.Author, &timeStamp, &post.Forum, &post.Message,
 			&post.Parent, &post.Thread, &post.IsEdited)
 		if err != nil {
 			return models.Posts{}, DBError
 		}
+		post.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
+		posts = append(posts, post)
+	}
+	return posts, OK
+}
+
+func (db *DB) GetPostsParentTree(id string, limit string, since string, desc string) (models.Posts, int) {
+	ifDesc, _ := strconv.ParseBool(desc) // mb check error
+	rows := &pgx.Rows{}
+	err := errors.New("")
+	strDesc := "ASC"
+	if ifDesc {
+		strDesc = "DESC"
+	}
+	query := ""
+	if since != "" {
+		actualSince := ""
+		if ifDesc {
+			actualSince = fmt.Sprintf(ParentTreeSincePart, "<")
+		} else {
+			actualSince = fmt.Sprintf(ParentTreeSincePart, ">")
+		}
+		query = fmt.Sprintf(GetPostsParentTree, actualSince, strDesc) + fmt.Sprintf(GetPostsParentTreePart2Alt, strDesc)
+		rows, err = db.db.Query(query, id, limit, since)
+	} else {
+		query = fmt.Sprintf(GetPostsParentTree, "", strDesc) + fmt.Sprintf(GetPostsParentTreePart2Alt, strDesc)
+		rows, err = db.db.Query(query, id, limit)
+	}
+	if err != nil {
+		return nil, DBError
+	}
+	defer rows.Close()
+	posts := make(models.Posts, 0)
+	for rows.Next() {
+		post := new(models.Post)
+		timeStamp := time.Time{}
+		err := rows.Scan(&post.ID, &post.Author, &timeStamp, &post.Forum, &post.Message,
+			&post.Parent, &post.Thread, &post.IsEdited)
+		if err != nil {
+			return models.Posts{}, DBError
+		}
+		post.Created = timeStamp.Format("2006-01-02T15:04:05.999999999Z07:00")
 		posts = append(posts, post)
 	}
 	return posts, OK

@@ -17,3 +17,7 @@
 *.idea*
 
 go.sum
+
+config/config_local.json
+
+main
